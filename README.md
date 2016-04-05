@@ -8,7 +8,7 @@ Nginx has been set up on the Raspberry pi also to allow control over web interfa
 The Raspberry pi also communicates with an ESP8266-12E to control two valves in a two storey house - upstairs and downstairs.
 The valves themselves are turned by stepper motors controlled by an arduino mini.  The ESP8266 pulls pins high to indicate with valve is open. The arduino mini pulls pins high to let the ESP8266 know that the vales are now open and saves it to eeprom in case of power failure.
 
-Valve conroller is optional.
+Valve controller is optional.
 
 To setup Raspberry Pi:<br />
 Set up Raspberry pi with Raspbian Jessue as per instructions for your touchscreen.<br />
