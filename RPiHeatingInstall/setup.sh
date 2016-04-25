@@ -43,7 +43,7 @@ TOUCHSCREEN="YES"
 OPTIONS="Touchscreen Web_Only"
 select opt in $OPTIONS; do
 	if [ "$opt" = "Touchscreen" ]; then
-		TOUCHSCREEN = "YES"
+		TOUCHSCREEN="YES"
 		break
 	elif [ "$opt" = "Web_Only" ]; then
 		TOUCHSCREEN="NO"
