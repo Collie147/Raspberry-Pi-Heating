@@ -1897,34 +1897,32 @@ def TCPListen2() :#Function to listen for OilLevel readings (over TCP) --- possi
 						except ValueError :
 							OilLevel = "   "
 							OilLevelText = "OilLevel = N/A"
-					if "Temp" in data :
+								if "Temp" in data :
 							print "Arduino 433 Received", data
 							try :
-								TempInt = int(re.search(r'\d+', data).group())
-								OutsideTemp = str(TempInt)
+								TempString = data.strip('Temp')
+								TempFloat = float(TempString)
+								OutsideTemp = str(TempFloat)
 								OutsideTempText = "Ground Temp = "
 								OutsideTempText += OutsideTemp
 								print "Outside Temperature = ",OutsideTempText
 								XMLWriteRequest = True
-								screenRefreshRequested = True
 							except ValueError :
 								OutsideTemp = "   "
 								OutsideTempText = "Group Temp = N/A"	
 					if "BattVolt" in data :
 							print "Arduino TCP Received", data
 							try :
-								BatteryInt = int(re.search(r'\d+', data).group())
-								OutsideBatt = str(TempInt)
+								BattString = data.strip('BattVolt')
+								BattFloat = float(BattString)
+								OutsideBatt = str(BattFloat)
 								OutsideBattText = "Battery Voltage = "
 								OutsideBattText += OutsideBatt
 								print "Outside Battery Voltage = ",OutsideBattText
 								XMLWriteRequest = True
-								screenRefreshRequested = True
 							except ValueError :
 								OutsideTemp = "   "
-								OutsideTempText = "Group Temp = N/A"	
-						
-					
+								OutsideTempText = "Group Temp = N/A"
 			conn.close()
 		except Exception, e:
 			print "TCPListen2", repr(e)

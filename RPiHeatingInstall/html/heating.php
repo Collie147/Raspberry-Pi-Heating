@@ -127,17 +127,17 @@ function function1()
     }
 	if (x[8].childNodes[0].nodeValue == "True")
 	{
-		document.getElementById("statusCircle").style.background = "red";
-		document.getElementById("statusCircleText").style.color = "yellow";
-		document.getElementById("statusCircleText").innerHTML = "ON";
+		document.getElementById("statusCircle1").style.background = "red";
+		document.getElementById("statusCircleText1").style.color = "yellow";
+		document.getElementById("statusCircleText1").innerHTML = "ON";
 	}
 	else
 	{
-		document.getElementById("statusCircle").style.background = "grey";
-		document.getElementById("statusCircleText").style.color = "black";
-		document.getElementById("statusCircleText").innerHTML = "OFF";
+		document.getElementById("statusCircle1").style.background = "grey";
+		document.getElementById("statusCircleText1").style.color = "black";
+		document.getElementById("statusCircleText1").innerHTML = "OFF";
 	}
-	var OilLevel = parseInt(x[9].childNodes[0].nodeValue)
+	var OilLevel = parseInt(x[9].childNodes[0].nodeValue);
 	document.getElementById("statusCircleText2").innerHTML = OilLevel;
 	if (OilLevel < 50 )
 	{
@@ -150,6 +150,40 @@ function function1()
 	if (OilLevel >= 100 )
 	{
 		document.getElementById("statusCircle2").style.background = "green";
+	}
+	var outsideTemp = (x[10].childNodes[0].nodeValue);
+	document.getElementById("statusCircleText3").innerHTML = outsideTemp;
+	if (outsideTemp != "n/a"){
+		outsideTemp = parseFloat(outsideTemp);
+		if (outsideTemp > 30 )
+		{
+			document.getElementById("statusCircle3").style.background = "red";
+		}
+		if ((outsideTemp <= 30 ) && (outsideTemp > 20 ))
+		{
+			document.getElementById("statusCircle3").style.background = "yellow";
+		}
+		if ((outsideTemp <= 20 ) && (outsideTemp > 15 ))
+		{
+			document.getElementById("statusCircle3").style.background = "green";
+		}
+		if ((outsideTemp <= 15 ) && (outsideTemp > 10 ))
+		{
+		document.getElementById("statusCircle3").style.background = "aquamarine";
+		}
+		if ((outsideTemp <= 10 ) && (outsideTemp > 4 ))
+		{
+			document.getElementById("statusCircle3").style.background = "aqua";
+		}
+		if (outsideTemp <= 4 )
+		{
+			document.getElementById("statusCircle3").style.background = "blue";
+		}
+	}
+	var BattLevel = (x[11].childNodes[0].nodeValue);
+	document.getElementById("statusCircleText4").innerHTML = BattLevel;
+	if (BattLevel != "n/a"){
+		BattLevel = parseFloat(BattLevel);
 	}
 }
 function function2(elm)
@@ -194,7 +228,7 @@ function function2(elm)
 		background-image: linear-gradient(to bottom, #593cfc, #3498db);
 		text-decoration: none;
 		}
-	#statusCircle {
+	#statusCircle1 {
 		position: relative;
 		background-color: grey;
 		margin: 20px auto;
@@ -202,7 +236,7 @@ function function2(elm)
 		height: 100px;
 		border-radius:200px
 	}
-	#statusCircleText {
+	#statusCircleText1 {
 		position: absolute;
 		top: 50%;
 		left: 50%;
@@ -225,7 +259,39 @@ function function2(elm)
 		transform:translate(-50%, -50%);
 		color: black;
 		font-size: 40px;
-	}	
+	}
+#statusCircle3 {
+		position: relative;
+		background-color: grey;
+		margin: 20px auto;
+		width: 100px;
+		height: 100px;
+		border-radius:200px
+	}
+	#statusCircleText3 {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform:translate(-50%, -50%);
+		color: black;
+		font-size: 40px;
+	}
+#statusCircle4 {
+		position: relative;
+		background-color: grey;
+		margin: 20px auto;
+		width: 100px;
+		height: 100px;
+		border-radius:200px
+	}
+	#statusCircleText4 {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform:translate(-50%, -50%);
+		color: black;
+		font-size: 40px;
+	}		
 		
 </style>
 <body onload="function1();">
@@ -252,12 +318,28 @@ function function2(elm)
 	
 </form>
 
-<div id = "statusCircle">
-	<div id = "statusCircleText"> Relay </div>
+<div id = "statusCircle1">
+	<div id = "statusCircleText1"> Relay </div> <br><br><br><br><br><br><center>Relay Status</center>
 </div>
+<table style = "width:100%">
+<tr>
+<td>
 <div id = "statusCircle2">
-	<div id = "statusCircleText2"> Oil </div>
+	<div id = "statusCircleText2"> Oil </div> <br><br><br><br><br><br><center>Oil Level</center>
 </div>
+</td>
+<td>
+<div id = "statusCircle3">
+	<div id = "statusCircleText3"> Temp </div> <br><br><br><br><br><br><center>Outside Temp</center>
+</div>
+</td>
+<td>
+<div id = "statusCircle4">
+	<div id = "statusCircleText4"> Batt </div> <br><br><br><br><br><br><center>Battery Level</center>
+</div>
+</td>
+</tr>
+</table>
 
 
 

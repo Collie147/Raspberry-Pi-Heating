@@ -1,4 +1,9 @@
-
+***************************************************************************************/
+*    Title: testTouchScreen
+*    Author: Texy
+*    Availability: https://www.raspberrypi.org/forums/viewtopic.php?f=64&t=48967
+*	 Used in RPiHeatingInstall setup.py/reconfigureSetup.py on Raspberry Pi
+***************************************************************************************/
 ***************************************************************************************/
 *    Title: PIGPIO
 *    Availability: abyz.co.uk/rpi/pigpio/

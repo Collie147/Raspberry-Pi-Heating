@@ -272,17 +272,17 @@ def WriteXML():
 	else :
 		XML.SubElement(root, "field").text = "False"
 		
-	if (ESP8266Online == True) :
+	if (ESP8266Online == True) :#7
 		XML.SubElement(root, "field").text = "True"
 	else :
 		XML.SubElement(root, "field").text = "False"	
-	if (RelayStatus == True) :
+	if (RelayStatus == True) :#8
 		XML.SubElement(root, "field").text = "True"
 	else :
 		XML.SubElement(root, "field").text = "False"
-	XML.SubElement(root, "field").text = str(OilLevel)
-	XML.SubElement(root, "field").text = str(OutsideTemp)
-	XML.SubElement(root, "field").text = str(OutsideBatt)
+	XML.SubElement(root, "field").text = str(OilLevel)#9
+	XML.SubElement(root, "field").text = str(OutsideTemp)#10
+	XML.SubElement(root, "field").text = str(OutsideBatt)#11
 	tree = XML.ElementTree(root)
 	tree = XML.ElementTree(root)
 	tree.write("/var/www/html/ButtonStatus.xml")
@@ -1916,8 +1916,9 @@ def ListenSend433() :#Function to listen for OilLevel readings (over 433mhz) ---
 						if "T" in data :
 							print "Arduino 433 Received", data
 							try :
-								TempInt = int(re.search(r'\d+', data).group())
-								OutsideTemp = str(TempInt)
+								TempString = data.strip('T')
+								TempFloat = float(TempString)
+								OutsideTemp = str(TempFloat)
 								OutsideTempText = "Ground Temp = "
 								OutsideTempText += OutsideTemp
 								print "Outside Temperature = ",OutsideTempText
@@ -1931,8 +1932,9 @@ def ListenSend433() :#Function to listen for OilLevel readings (over 433mhz) ---
 						if "BV" in data :
 							print "Arduino 433 Received", data
 							try :
-								BatteryInt = int(re.search(r'\d+', data).group())
-								OutsideBatt = str(TempInt)
+								BattString = data.strip('BV')
+								BattFloat = float(BattString)
+								OutsideBatt = str(BattFloat)
 								OutsideBattText = "Battery Voltage = "
 								OutsideBattText += OutsideBatt
 								print "Outside Battery Voltage = ",OutsideBattText
