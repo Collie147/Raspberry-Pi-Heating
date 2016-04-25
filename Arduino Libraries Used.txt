@@ -1,0 +1,6 @@
+VirtualWire - http://www.airspayce.com/mikem/arduino/VirtualWire/
+OneWire - http://pjrc.com/teensy/td_libs_OneWire.html
+DallasTemperature - https://milesburton.com/Dallas_Temperature_Control_Library
+Sleep_n0m1 - https:/github.com/n0m1/Sleep_n0m1
+PinChangeInt - http://code.google.com/p/arduino-pinchangeint
+Sodaq_DS3231 - https:/github.com/SodaqMoja/Sodaq_DS3231

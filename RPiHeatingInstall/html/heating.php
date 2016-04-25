@@ -264,7 +264,7 @@ function function2(elm)
 <?php 
 if(isset($_POST['submit1']))
 {
-	SendTCP("Off", '192.168.1.240', 8889);
+	SendTCP("Off", '*IPADDRESS', 8889);
 	echo '<script type = "text/javascript">'
 	, 'function1();'
 	, 'document.getElementById("Box1").style.backgroundColor = "red";'
@@ -273,7 +273,7 @@ if(isset($_POST['submit1']))
 }
 if(isset($_POST['submit2']))
 {
-	SendTCP("Upstairs", '192.168.1.240', 8889);
+	SendTCP("Upstairs", '*IPADDRESS', 8889);
 	echo '<script type = "text/javascript">'
 	, 'function1();'
 	//, 'if (document.getElementById("Box2").style.backgroundColor = "red")'
@@ -284,7 +284,7 @@ if(isset($_POST['submit2']))
 }
 if(isset($_POST['submit3']))
 {
-	SendTCP("Downstairs", '192.168.1.240', 8889);
+	SendTCP("Downstairs", '*IPADDRESS', 8889);
 	echo '<script type = "text/javascript">'
 	, 'function1();'
 	//, 'if (document.getElementById("Box3").style.backgroundColor = "red")'
@@ -295,7 +295,7 @@ if(isset($_POST['submit3']))
 }
 if(isset($_POST['submit4']))
 {
-	SendTCP("Timer", '192.168.1.240', 8889);
+	SendTCP("Timer", '*IPADDRESS', 8889);
 	echo '<script type = "text/javascript">'
 	, 'function1();'
 	, 'document.getElementById("Box4").style.backgroundColor = "red";'
@@ -305,7 +305,7 @@ if(isset($_POST['submit4']))
 }
 if(isset($_POST['submit5']))
 {
-	SendTCP("Timed", '192.168.1.240', 8889);
+	SendTCP("Timed", '*IPADDRESS', 8889);
 	echo '<script type = "text/javascript">'
 	, 'document.getElementById("Box5").style.backgroundColor = "red";'
 	, 'function2("heating2.php");'
@@ -314,7 +314,7 @@ if(isset($_POST['submit5']))
 }
 if(isset($_POST['submit6']))
 {
-	SendTCP("Constant", '192.168.1.240', 8889);
+	SendTCP("Constant", '*IPADDRESS', 8889);
 	echo '<script type = "text/javascript">'
 	, 'function1();'
 	, 'document.getElementById("Box6").style.backgroundColor = "red";'

@@ -10,6 +10,19 @@ done
 sudo cp -r /home/pi/RPiHeatingInstall/etc/* /etc
 echo -e "\x1b[0;32mINSTALLER:\x1b[m  copying website files and changing permissions"
 echo
+echo -e "\x1b[0;32mINSTALLER:\x1b[m  Do you wish to use a touchscreen or web control only"
+TOUCHSCREEN="YES"
+OPTIONS="Touchscreen Web_Only"
+select opt in $OPTIONS; do
+	if [ "$opt" = "Touchscreen" ]; then
+		TOUCHSCREEN = "YES"
+		break
+	elif [ "$opt" = "Web_Only" ]; then
+		TOUCHSCREEN="NO"
+		echo "TOUCHSCREEN="$TOUCHSCREEN
+		break
+	fi
+done
 echo -e "\x1b[0;32mINSTALLER:\x1b[m  Raspberry Pi configured on static IP address 192.168.1.240 on eth0"
 echo -e "\x1b[0;32mINSTALLER:\x1b[m  Do you wish to reconfigure this address and/or interface?"
 IPADDRESS="192.168.1.240"
@@ -76,7 +89,11 @@ OPTIONS2="433mhz Wifi/TCP"
 select opt in $OPTIONS2; do
 	if [ "$opt" = "433mhz" ]; then
 	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  433mhz Setup"
-	  sudo cp /home/pi/RPiHeatingInstall/RPiHeatingScreenOil433.py /home/pi/RPiHeatingScreen.py
+	  if [ "$TOUCHSCREEN" = "YES" ]; then
+		sudo cp /home/pi/RPiHeatingInstall/RPiHeatingScreenOil433.py /home/pi/RPiHeatingScreen.py
+	  else 
+	    sudo cp /home/pi/RPiHeatingInstall/RPiHeatingScreenOil433NOSCREEN.py /home/pi/RPiHeatingScreen.py
+	  fi
 	  RX_433_GPIO_PIN="4"
 	  TX_433_GPIO_PIN="3"
 	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  Do you want to Manually configure GPIO connections?"
@@ -107,7 +124,11 @@ select opt in $OPTIONS2; do
 	  break
 	elif [ "$opt" = "Wifi/TCP" ]; then
 	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  Wifi/TCP"
-	  sudo cp /home/pi/RPiHeatingInstall/RPiHeatingScreenOilTCP.py /home/pi/RPiHeatingScreen.py
+	  if [ "$TOUCHSCREEN" = "YES" ]; then
+		sudo cp /home/pi/RPiHeatingInstall/RPiHeatingScreenOilTCP.py /home/pi/RPiHeatingScreen.py
+	  else
+	    sudo cp /home/pi/RPiHeatingInstall/RPiHeatingScreenOilTCPNOSCREEN.py /home/pi/RPiHeatingScreen.py
+	  fi
 	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  Do you want to Manually configure GPIO connections?"
 	  echo -e "\x1b[0;32mINSTALLER:\x1b[0;33m  WARNING!!! This could conflict with your touchscreen\x1b[m"
 	  echo -e "\x1b[0;32mINSTALLER:\x1b[0;33m  WARNING!!! Check your touchscreen datasheet first!\x1b[m"
@@ -150,82 +171,85 @@ sudo sed -i "s/*ROUTER/$ROUTERADDRESS/g" /etc/dhcpcd.conf
 sudo sed -i "s/*DNS/$DNSADDRESS/g" /etc/dhcpcd.conf
 echo -e "\x1b[0;32mINSTALLER:\x1b[m  RPiHeatingScreen.py"
 sudo sed -i "s/*IPADDRESS/$IPADDRESS/g" /home/pi/RPiHeatingScreen.py
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  heating.php"
+echo -e "\x1b[0;32mINSTALLER:\x1b[m  heating.php and heating2.php"
 sudo sed -i "s/*IPADDRESS/$IPADDRESS/g" /var/www/html/heating.php
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  Select your touchscreen device"
-SelectedDevice="None"
-DEVICES="$(sudo python /home/pi/RPiHeatingInstall/listDevices.py)"
-#echo DEVICES $DEVICES
-eval set $DEVICES
-select opt in "$@"; do
-	#echo "$opt"
-	SelectedDevice="$opt"
-	echo "$SelectedDevice"
-	break
-done
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  '"$SelectedDevice"' will be inserted into the python script"
-if [ "$SelectedDevice" != "None" ]; then
-	sed -i "s/*TOUCHSCREEN/$SelectedDevice/g" /home/pi/RPiHeatingScreen.py
-	sudo cp /home/pi/RPiHeatingInstall/testTouchScreen.py /home/pi
-	sed -i "s/*TOUCHSCREEN/$SelectedDevice/g" /home/pi/testTouchScreen.py
+sudo sed -i "s/*IPADDRESS/$IPADDRESS/g" /var/www/html/heating2.php
+if [ "$TOUCHSCREEN" = "YES" ]; then
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  Select your touchscreen device"
+	SelectedDevice="None"
+	DEVICES="$(sudo python /home/pi/RPiHeatingInstall/listDevices.py)"
+	#echo DEVICES $DEVICES
+	eval set $DEVICES
+	select opt in "$@"; do
+		#echo "$opt"
+		SelectedDevice="$opt"
+		echo "$SelectedDevice"
+		break
+	done
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  '"$SelectedDevice"' will be inserted into the python script"
+	if [ "$SelectedDevice" != "None" ]; then
+		sed -i "s/*TOUCHSCREEN/$SelectedDevice/g" /home/pi/RPiHeatingScreen.py
+		sudo cp /home/pi/RPiHeatingInstall/testTouchScreen.py /home/pi
+		sed -i "s/*TOUCHSCREEN/$SelectedDevice/g" /home/pi/testTouchScreen.py
+	fi
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  Screen resolution set at 320 x 240.  Do you want to change this?"
+	OPTIONS3="Yes No"
+	HORIZONTAL="320"
+	VERTICAL="240"	
+	select opt in $OPTIONS3; do
+		if [ "$opt" = "Yes" ]; then
+			read -p $'\e[32mINSTALLER:\e[0m  Enter Horizonal Number of Pixels:-' -e -i $HORIZONTAL HORIZONTAL
+			read -p $'\e[32mINSTALLER:\e[0m  Enter Vertical Number of Pixels:-' -e -i $VERTICAL VERTICAL
+			break
+		elif [ "$opt" = "No" ]; then
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  Excellent.  Moving on..."
+			break
+		else
+			clear
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  bad option enter 1 or 2"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  1. Yes"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  2. No"
+		fi
+	done
+	sed -i "s/*HORIZONTAL/$HORIZONTAL/g" /home/pi/RPiHeatingScreen.py
+	sed -i "s/*VERTICAL/$VERTICAL/g" /home/pi/RPiHeatingScreen.py
+	sed -i "s/*HORIZONTAL/$HORIZONTAL/g" /home/pi/testTouchScreen.py
+	sed -i "s/*VERTICAL/$VERTICAL/g" /home/pi/testTouchScreen.py
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  Calibrating Touchscreen"
+	sudo python /home/pi/RPiHeatingInstall/calibrateDevice.py "$SelectedDevice"
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  Testing touchscreen - Test if mouse follows input before exit"
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  NB If you cannot click HERE to exit press CTRL+C"
+	sleep 1
+	sudo python /home/pi/testTouchScreen.py
+	echo -e "\x1b[0;32mINSTALLER:\x1b[m  Did the mouse follow inputs?"
+	OPTIONS4="Yes No Error"
+	select opt in $OPTIONS4; do
+		if [ "$opt" = "Yes" ]; then
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  Excellent. Moving on..."
+			break
+		elif [ "$opt" = "No" ]; then
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  Applying Fix"
+			sudo bash /home/pi/RPiHeatingInstall/installsd1.sh
+			echo
+			echo
+			break
+		elif [ "$opt" = "Error" ]; then
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  There appears to be an issue with your screen"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  you can modify the testTouchScreen.py script"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  and change the resolution to match your screen"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  or there may be another issue"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  NB this is not tested on any other screens!"
+			echo
+			sleep 1
+			break
+		else
+			clear
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  bad option enter 1 or 2"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  1. Yes"
+			echo -e "\x1b[0;32mINSTALLER:\x1b[m  2. No"
+		fi
+	done
 fi
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  Screen resolution set at 320 x 240.  Do you want to change this?"
-OPTIONS3="Yes No"
-HORIZONTAL="320"
-VERTICAL="240"
-select opt in $OPTIONS3; do
-	if [ "$opt" = "Yes" ]; then
-		read -p $'\e[32mINSTALLER:\e[0m  Enter Horizonal Number of Pixels:-' -e -i $HORIZONTAL HORIZONTAL
-		read -p $'\e[32mINSTALLER:\e[0m  Enter Vertical Number of Pixels:-' -e -i $VERTICAL VERTICAL
-		break
-	elif [ "$opt" = "No" ]; then
-		echo -e "\x1b[0;32mINSTALLER:\x1b[m  Excellent.  Moving on..."
-		break
-	else
-		clear
-		echo -e "\x1b[0;32mINSTALLER:\x1b[m  bad option enter 1 or 2"
-		echo -e "\x1b[0;32mINSTALLER:\x1b[m  1. Yes"
-		echo -e "\x1b[0;32mINSTALLER:\x1b[m  2. No"
-	fi
-done
-sed -i "s/*HORIZONTAL/$HORIZONTAL/g" /home/pi/RPiHeatingScreen.py
-sed -i "s/*VERTICAL/$VERTICAL/g" /home/pi/RPiHeatingScreen.py
-sed -i "s/*HORIZONTAL/$HORIZONTAL/g" /home/pi/testTouchScreen.py
-sed -i "s/*VERTICAL/$VERTICAL/g" /home/pi/testTouchScreen.py
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  Calibrating Touchscreen"
-sudo python /home/pi/RPiHeatingInstall/calibrateDevice.py "$SelectedDevice"
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  Testing touchscreen - Test if mouse follows input before exit"
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  NB If you cannot click HERE to exit press CTRL+C"
-sleep 1
-sudo python /home/pi/testTouchScreen.py
-echo -e "\x1b[0;32mINSTALLER:\x1b[m  Did the mouse follow inputs?"
-OPTIONS4="Yes No Error"
-select opt in $OPTIONS4; do
-	if [ "$opt" = "Yes" ]; then
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  Excellent. Moving on..."
-	  break
-	elif [ "$opt" = "No" ]; then
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  Applying Fix"
-	  sudo bash /home/pi/RPiHeatingInstall/installsd1.sh
-	  echo
-	  echo
-	  break
-	elif [ "$opt" = "Error" ]; then
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  There appears to be an issue with your screen"
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  you can modify the testTouchScreen.py script"
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  and change the resolution to match your screen"
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  or there may be another issue"
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  NB this is not tested on any other screens!"
-	  echo
-	  sleep 1
-	  break
-	else
-	  clear
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  bad option enter 1 or 2"
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  1. Yes"
-	  echo -e "\x1b[0;32mINSTALLER:\x1b[m  2. No"
-	fi
-done
 ESP8266ValveIPADDRESS="192.168.1.242"
 read -p $'\e[32mINSTALLER:\e[0m  Enter IP address for the valve controller:-' -e -i $ESP8266ValveIPADDRESS ESP8266ValveIPADDRESS
 while [ "$ESP8266ValveIPADDRESS" = "$IPADDRESS" ]; do

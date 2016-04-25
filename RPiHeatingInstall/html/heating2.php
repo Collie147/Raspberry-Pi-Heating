@@ -5,14 +5,25 @@ session_start();
 if ($_SESSION["Login"] != "YES") {
 	header ("Location: index.php");
 	header('Cache-Control: no-cache, must-revalidate');
-	header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
-	//header('Content-type: application/json');
-	
+	header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');	
 }
-
-
-
+function SendTCP($in, $address, $port){
+	
+	/* Create a TCP/IP socket. */
+	$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+	$result = socket_connect($socket, $address, $port);
+	$out = '';
+	socket_write($socket, $in, strlen($in));
+	while ($out = socket_read($socket, 2048)) {
+	}
+	socket_close($socket);
+}
+if(isset($_POST['XMLUPDATE']))
+{
+	SendTCP("XMLUpdate", '*IPADDRESS', 8889);
+}
 ?>
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -87,20 +98,12 @@ function loadJSON()
 			}
 		
 	});
-	
-	
-	//alert (TimeArray);
 }
 function saveJSON()
 {
-	
-	//alert ("Saving");
 	var myJsonString = JSON.stringify(TimeArray, true);
-	//file_put_contents('/json/test.json', json_encode($TimeArray)); 
-	//alert (myJsonString);
-	
 	$.post("json.php", myJsonString);
-	
+	$.post("heating2.php", "XMLUPDATE");
 	setTimeout(ReloadPage, 1000);
 }
 function ClearAll()
@@ -113,10 +116,10 @@ function ClearAll()
 }
 function ReloadPage()
 {	
-	
 	location.reload(true);
 }
 loadJSON();
+
 </script>
 </head>
 <style>
