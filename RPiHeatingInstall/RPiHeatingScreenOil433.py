@@ -1,6 +1,5 @@
 #!/usr/bin/python
 # Raspberry Pi Heating system Written by Collie147
- 
 
 import pygame, sys, os, time, json, thread, datetime, select, socket, SocketServer, threading, pywapi, string, re
 import xml.etree.cElementTree as XML
@@ -19,7 +18,10 @@ GPIO_GREEN_LED = *GREEN_LED_GPIO_PIN
 GPIO_RELAY = *RELAY_GPIO_PIN
 GPIO_RX = *RX_433_GPIO_PIN
 GPIO_TX = *TX_433_GPIO_PIN
+Horizontal = *HORIZONTAL
+Vertical = *VERTICAL
 
+newBoot = True
 XMLWriteRequest = False
 XMLWriteTime = 0
 XMLWriteDelay = 5
@@ -48,8 +50,11 @@ running = True
 selecting = False
 screenRefreshRequested = False
 SystemMode = 0
-OilLevel = 9
-OilLevelText = "OilLevel = 999"
+OilLevel = 0
+OilLevelText = "OilLevel = n/a"
+OutsideTemp = 0
+OutsideTempText = "n/a"
+OutsideBatt = 0
 MessageSent = False
 RelayStatus = False
 RelayChange = False
@@ -63,8 +68,8 @@ TCP_PORTReceive = 5005
 BUFFER_SIZE = 256
 
 GPIO.setmode(GPIO.BCM) # Set GPIO to Pin mode rather than GPIO mode
-GPIO.setup(GPIO_RED_LED, GPIO.OUT) # Pin 18 or GPIO 24 | LED RED
-GPIO.setup(GPIO_GREEN_LED, GPIO.OUT) # Pin 16 or GPIO 23 | LED GREEN
+GPIO.setup(GPIO_RED_LED, GPIO.OUT) # Pin 18 or GPIO 24 | RED LED
+GPIO.setup(GPIO_GREEN_LED, GPIO.OUT) # Pin 16 or GPIO 23 | GREEN LED
 GPIO.setup(GPIO_RELAY, GPIO.OUT) # Pin 15 or GPIO 22 | Heating Relay
 GPIO.output(GPIO_RED_LED, False)
 GPIO.output(GPIO_GREEN_LED, False)
@@ -94,6 +99,7 @@ def openSocket2():
 		except socket.error:
 			print "Cound not create socket to", TCP_IPSend, " ", TCP_PORTSend, socket.error
 			socket2Open = False
+			ESP8266Online = False
 			GPIO.output(GPIO_GREEN_LED, False)
 			
 	else :
@@ -101,11 +107,10 @@ def openSocket2():
 		socket2Open = False
 		GPIO.output(GPIO_GREEN_LED, False)
 		print "ESP8266 is not online" 
-		
 openSocket2()		
+
 devices = map(InputDevice, list_devices())
 eventX=""
-
 for dev in devices:
 	if dev.name == "*TOUCHSCREEN":
 		eventX = dev.fn
@@ -116,7 +121,6 @@ os.environ["SDL_MOUSEDRV"] = "TSLIB"
 os.environ["SDL_MOUSEDEV"] = eventX
 
 pygame.init()
-
 timeboxstatus = range(97)
 timeboxout = range(97)
 timebox = range(97)
@@ -127,21 +131,22 @@ for x in range (1, 97) :
 	
 def ReadJSONFile() :
 	global timeboxstatus
+	#print "Reading JSON File"
 	try:
 		FileTimeRead = open('/var/www/html/json.txt', 'r')
 		FileTimeRead.seek(0)
-		print "Reading JSON File"
 		timeboxstatus = json.load(FileTimeRead)
 		FileTimeRead.close()
 	except Exception, e:
 		print "ReadJSONFile Error:", repr(e)
 		print "Copying backup JSON"
 		os.system('sudo cp /var/www/html/json.bak /var/www/html/json.txt')
-		ReadXML()
+		#ReadXML()
 
+	
 def WriteJSONFile() :
 	FileTimeSave = open('/var/www/html/json.txt', 'w+')
-	print "Saving JSON file"
+	#print "Saving JSON file"
 	json.dump(timeboxstatus, FileTimeSave)
 	FileTimeSave.flush()
 	FileTimeSave.close()
@@ -155,6 +160,11 @@ def ReadXML():
 	global PreviousDownstairs
 	global ESP8266Online
 	global OilLevel
+	global OutsideBatt
+	global OutsideBattText
+	global OutsideTemp
+	global OutsideTempText
+	global newBoot
 	try:
 		PreviousSystemMode = SystemMode
 		PreviousUpstairs = Upstairs
@@ -170,6 +180,7 @@ def ReadXML():
 			Downstairs = True
 		elif (root[2].text == "False") :
 			Downstairs = False
+	
 		Timer = root[3].text
 		Timed = root[5].text
 		Constant = root[6].text
@@ -194,19 +205,34 @@ def ReadXML():
 			
 		else :
 			ESP8266Online == False
+			
+		if newBoot == True :
+			newBoot = False
+			#print "New Boot"
+			if SystemMode == 1 :
+				#print "SystemMode=",SystemMode
+				SystemMode = 0
+				#print "SystemMode=",SystemMode
 		OilLevel = str(root[9].text)
 		OilLevelText = "OilLevel = "
 		OilLevelText += OilLevel
+		OutsideTemp = str(root[10].text)
+		OutsideTempText = "Ground Temp = "
+		OutsideTempText += OutsideTemp
+		OutsideBatt = str(root[11].text)
+		OutsideBattText = "Battery Vol = "
+		OutsideTempText += OutsideTemp
 	except Exception, e:
 			print "ReadXML Error:", repr(e)
 			print "Copying backup XML"
 			os.system('sudo cp /var/www/html/ButtonStatus.bak /var/www/html/ButtonStatus.xml')
 			ReadXML()
 
-
 ReadXML()
 
 def WriteXML():
+	global screenRefreshRequested
+	#print "WriteXML()"
 	root = XML.Element("root")
 	
 	if (SystemMode == 0) :#1
@@ -246,19 +272,21 @@ def WriteXML():
 	else :
 		XML.SubElement(root, "field").text = "False"
 		
-	if (ESP8266Online == True) :
+	if (ESP8266Online == True) :#7
 		XML.SubElement(root, "field").text = "True"
 	else :
 		XML.SubElement(root, "field").text = "False"	
-	if (RelayStatus == True) :
+	if (RelayStatus == True) :#8
 		XML.SubElement(root, "field").text = "True"
 	else :
 		XML.SubElement(root, "field").text = "False"
-	XML.SubElement(root, "field").text = str(OilLevel)
+	XML.SubElement(root, "field").text = str(OilLevel)#9
+	XML.SubElement(root, "field").text = str(OutsideTemp)#10
+	XML.SubElement(root, "field").text = str(OutsideBatt)#11
 	tree = XML.ElementTree(root)
 	tree = XML.ElementTree(root)
 	tree.write("/var/www/html/ButtonStatus.xml")
-	Screen1Refresh()
+	screenRefreshRequested = True
 	
 def WeatherDisplay() :
 	
@@ -267,20 +295,24 @@ def WeatherDisplay() :
 	global WeatherCount
 	WeatherCount = (time.time() - WeatherCheck)
 	if WeatherCount > WeatherDelay :
-		print "Getting Weather Info"
+		#print "Getting Weather Info"
+		global yahoo_result
+		global SunRiseSet
+		global Weather
+		global RainHumid
+		global Wind
+		global WindSpeed
+		u = u"\N{DEGREE SIGN}"
+		a = u.encode('utf-8')
 		try:
-			global yahoo_result
-			global SunRiseSet
-			global Weather
-			global RainHumid
-			global Wind
-			global WindSpeed
-			u = u"\N{DEGREE SIGN}"
-			a = u.encode('utf-8')
-			weather_result = pywapi.get_weather_from_weather_com('EIXX0003')
+			weather_result = pywapi.get_weather_from_weather_com('*locationCode')
+		except Exception, e:
+			weather_result = "n/a"
+			print "weather_result error", repr(e)
+		try:
 			WindSpd = str(weather_result['current_conditions']['wind']['speed'])
 			WindDir = (weather_result['current_conditions']['wind']['direction'])
-			
+		
 			if (WindDir >= 349) or (WindDir <= 11) :
 				WindDirection = "NORTH"
 			elif (WindDir >= 12) and (WindDir <= 33) :
@@ -313,27 +345,34 @@ def WeatherDisplay() :
 				WindDirection = "North-West"
 			elif (WindDir >= 327) and (WindDir <= 348) :
 				WindDirection = "North-North-West"
-			
-			RainHumid = str("Humidity: " + (weather_result['forecasts'][0]['day']['humidity']) + "%" + "         Rain Chance: " + (weather_result['forecasts'][0]['day']['chance_precip']) + "%")
-			yahoo_result = pywapi.get_weather_from_yahoo('EIXX0003', 'metric')
-			SunRiseSet = str("Sunrise: " + (yahoo_result['astronomy']['sunrise']) + "   -   Sunset: " + (yahoo_result['astronomy']['sunset']))
-			Weather = str((yahoo_result['condition']['text']) + " and " + (yahoo_result['condition']['temp']))
-			Weather = Weather + u + "C"
 			Wind = "Wind: " + WindDirection
 			WindSpeed = WindSpd + " km/h"
-			WeatherCheck = time.time()
+			
 		except Exception, e:
-			print "Weather Error:", repr(e)
-			RainHumid = ""
-			yahoo_result = ""
-			SunRiseSet = ""
-			Weather = "       Weather Information Unavailable"
-			Wind = ""
-			WindSpeed = ""
-			WeatherCheck = time.time()
+			Wind = "n/a"
+			WindSpeed = "n/a"
+			print "Wind error", repr(e)
+		
+		try :
+			RainHumid = str("Humidity: " + (weather_result['forecasts'][0]['day']['humidity']) + "%" + "         Rain Chance: " + (weather_result['forecasts'][0]['day']['chance_precip']) + "%")
+		except Exception, e:
+			RainHumid = "n/a"
+			print "RainHumid error", repr(e)
+		try:
+			SunRiseSet = str("Sunrise: " + (weather_result['forecasts'][0]['sunrise']) + "   -   Sunset: " + (weather_result['forecasts'][0]['sunset']))
+		except Exception, e:
+			SunRiseSet = "n/a"
+			print "SunRiseSet error", repr(e)
+		try:
+			Weather = str((weather_result['current_conditions']['text']) + " and " + (weather_result['current_conditions']['temperature']))
+			Weather = Weather + u + "C"
+		except Exception, e:
+			Weather = "n/a"
+			print "Weather error", repr(e)
+		WeatherCheck = time.time()
 		
 # set up the window
-screen = pygame.display.set_mode((*HORIZONTAL, *VERTICAL), 0, 32)
+screen = pygame.display.set_mode((Horizontal, Vertical), 0, 32)
 pygame.display.set_caption('Drawing')
 pygame.mouse.set_visible(0)
 # set up the colors
@@ -411,8 +450,10 @@ screen.blit(background, (0, 0))
 pygame.display.flip()
 
 ReadJSONFile()
-Width = 26
-Height = 30
+BoxWidth = Horizontal/12
+BoxHeight = (Vertical/8) -3
+OKSide = Horizontal - (BoxWidth*12)
+OKBottom = Vertical - (BoxHeight*8)
 	
 def Screen1() : 
 
@@ -473,11 +514,11 @@ def Screen1() :
 	
 	#Render and refresh
 	screen.blit(background, (0, 0))
-	pygame.display.flip()
+	#pygame.display.flip()
 
 def Screen1Refresh() :
-
-	ReadXML()
+	#print "Screen1Refresh()"
+	#ReadXML()
 	font = pygame.font.Font(None, 25)
 	global Upstairs
 	global Downstairs
@@ -486,7 +527,7 @@ def Screen1Refresh() :
 	global OilLevelText
 	if SystemMode != 1 :
 		background.fill(WHITE)
-			
+	#print "ESP8266Online=",ESP8266Online		
 	#Rectangles
 	if SystemMode == 0 :
 		box1 = pygame.draw.rect(background, RED,(0, 100, 100, 50))
@@ -501,9 +542,11 @@ def Screen1Refresh() :
 			box3 = pygame.draw.rect(background, RED, (220, 100, 100, 50))
 		elif Downstairs == False :
 			box3 = pygame.draw.rect(background, GREEN, (220, 100, 100, 50))
+			
 	else:
 		box2 = pygame.draw.rect(background,  GREY, (110, 100, 100, 50))
 		box3 = pygame.draw.rect(background, GREY, (220, 100, 100, 50))
+		
 	if SystemMode == 1 :
 		box4 = pygame.draw.rect(background,RED,(0, 180, 100, 50))
 		text4 = font.render("Add 30 Min", 1, (BLUE))
@@ -526,6 +569,7 @@ def Screen1Refresh() :
 	text1 = font.render("OFF", 1, (BLACK))
 	#text = pygame.transform.rotate(text,270) 
 	textpos1 = text1.get_rect(centerx=50,centery=125)
+	
 	#TextBox5
 	text5 = font.render("Timed", 1, (BLACK))
 	textpos5 = text5.get_rect(centerx=160,centery=205)
@@ -534,7 +578,7 @@ def Screen1Refresh() :
 	textpos6 = text6.get_rect(centerx=270,centery=205)
 	
 	clock = pygame.time.Clock()
-	clock.tick(20)	#Sets the refresh rate of the screen
+	clock.tick(20)
 	
 	theTime=time.strftime("%H:%M:%S", time.localtime())
 	timeText=font.render(str(theTime), 1, (BLACK), (GREEN))
@@ -548,6 +592,7 @@ def Screen1Refresh() :
 		OilLevelTextRender=font.render(str(OilLevelText), 1, (BLACK), (YELLOW))
 	if (OilLevel >= 100) :
 		OilLevelTextRender=font.render(str(OilLevelText), 1, (BLACK), (GREEN))
+		
 	background.blit(OilLevelTextRender, (0, 0))
 	
 	global WeatherCheck
@@ -573,411 +618,419 @@ def Screen1Refresh() :
 	background.blit(text5, textpos5)
 	background.blit(text6, textpos6)
 	screen.blit(background, (0, 0))
-	pygame.display.flip()
+	#pygame.display.flip()
 	
 Screen1Refresh()	
 
-def ClockTime() : # Updates the on-screen clock
+def ClockTime() :  # Updates the on-screen clock
+	#print "ClockTime()"
 	clock = pygame.time.Clock()
-	clock.tick(20) #Sets the refresh rate of the screen
+	clock.tick(20)	#Sets the refresh rate for the screen
 	theTime=time.strftime("%H:%M:%S", time.localtime())
 	timeText=font.render(str(theTime), 1, (BLACK), (GREEN))
 	timeTextPos = timeText.get_rect()
 	timeTextPos.right = background.get_rect().right
 	background.blit(timeText, timeTextPos)
-	screen.blit(background, (0, 0))
-	pygame.display.flip()	
+	if SystemMode == 1 and BoostTimer > 0:
+		#print "Before SystemMode"
+		timertext = font.render(BoostTimer, 1, (RED), (BLUE))
+		background.blit(timertext, (0, 160))
+		
+	screen.blit(background, (0, 0))	
+	pygame.display.flip()
+	#pygame.display.update(timeTextPos)
 
 def TimeScreen1():# Mark the populated time screen as either Red:selected or Blue:not selected
+	#print "TimeScreen1"
 	ReadJSONFile()
 	global timeboxstatus
 	background = pygame.Surface(screen.get_size())
 	background = background.convert()
 	background.fill(WHITE)
 	if timeboxstatus[1] :
-		timebox[1] = pygame.draw.rect(background, RED,(8, 0, Width, Height))
+		timebox[1] = pygame.draw.rect(background, RED,(0, 0, BoxWidth, BoxHeight))
 	else :
-		timebox[1] = pygame.draw.rect(background, BLUE,(8, 0, Width, Height))
+		timebox[1] = pygame.draw.rect(background, BLUE,(0, 0, BoxWidth, BoxHeight))
 	if timeboxstatus[2] :
-		timebox[2] = pygame.draw.rect(background, RED,(8, Height, Width, Height))
+		timebox[2] = pygame.draw.rect(background, RED,(0, BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[2] = pygame.draw.rect(background, BLUE,(8, Height, Width, Height))
+		timebox[2] = pygame.draw.rect(background, BLUE,(0, BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[3] :
-		timebox[3] = pygame.draw.rect(background, RED,(8, Height*2, Width, Height))
+		timebox[3] = pygame.draw.rect(background, RED,(0, BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[3] = pygame.draw.rect(background, BLUE,(8, Height*2, Width, Height))
+		timebox[3] = pygame.draw.rect(background, BLUE,(0, BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[4] :
-		timebox[4] = pygame.draw.rect(background, RED,(8, Height*3, Width, Height))
+		timebox[4] = pygame.draw.rect(background, RED,(0, BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[4] = pygame.draw.rect(background, BLUE,(8, Height*3, Width, Height))
+		timebox[4] = pygame.draw.rect(background, BLUE,(0, BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[5] :
-		timebox[5] = pygame.draw.rect(background, RED,(8, Height*4, Width, Height))
+		timebox[5] = pygame.draw.rect(background, RED,(0, BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[5] = pygame.draw.rect(background, BLUE,(8, Height*4, Width, Height))
+		timebox[5] = pygame.draw.rect(background, BLUE,(0, BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[6] :
-		timebox[6] = pygame.draw.rect(background, RED,(8, Height*5, Width, Height))
+		timebox[6] = pygame.draw.rect(background, RED,(0, BoxHeight*5, BoxWidth, BoxHeight))
 	else : 
-		timebox[6] = pygame.draw.rect(background, BLUE,(8, Height*5, Width, Height))
+		timebox[6] = pygame.draw.rect(background, BLUE,(0, BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[7] :
-		timebox[7] = pygame.draw.rect(background, RED,(8, Height*6, Width, Height))
+		timebox[7] = pygame.draw.rect(background, RED,(0, BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[7] = pygame.draw.rect(background, BLUE,(8, Height*6, Width, Height))
+		timebox[7] = pygame.draw.rect(background, BLUE,(0, BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[8] :
-		timebox[8] = pygame.draw.rect(background, RED,(8, Height*7, Width, Height))
+		timebox[8] = pygame.draw.rect(background, RED,(0, BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[8] = pygame.draw.rect(background, BLUE,(8, Height*7, Width, Height))
+		timebox[8] = pygame.draw.rect(background, BLUE,(0, BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[9] :
-		timebox[9] = pygame.draw.rect(background, RED,(Width+8, 0, Width, Height))
+		timebox[9] = pygame.draw.rect(background, RED,(BoxWidth, 0, BoxWidth, BoxHeight))
 	else :
-		timebox[9] = pygame.draw.rect(background, BLUE,(Width+8, 0, Width, Height))
+		timebox[9] = pygame.draw.rect(background, BLUE,(BoxWidth, 0, BoxWidth, BoxHeight))
 	if timeboxstatus[10] :
-		timebox[10] = pygame.draw.rect(background, RED,(Width+8, Height, Width, Height))
+		timebox[10] = pygame.draw.rect(background, RED,(BoxWidth, BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[10] = pygame.draw.rect(background, BLUE,(Width+8, Height, Width, Height))
+		timebox[10] = pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[11] :
-		timebox[11]= pygame.draw.rect(background, RED,(Width+8, Height*2, Width, Height))
+		timebox[11]= pygame.draw.rect(background, RED,(BoxWidth, BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[11]= pygame.draw.rect(background, BLUE,(Width+8, Height*2, Width, Height))
+		timebox[11]= pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[12] :
-		timebox[12] = pygame.draw.rect(background, RED,(Width+8, Height*3, Width, Height))
+		timebox[12] = pygame.draw.rect(background, RED,(BoxWidth, BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[12] = pygame.draw.rect(background, BLUE,(Width+8, Height*3, Width, Height))
+		timebox[12] = pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[13] :
-		timebox[13] = pygame.draw.rect(background, RED,(Width+8, Height*4, Width, Height))
+		timebox[13] = pygame.draw.rect(background, RED,(BoxWidth, BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[13] = pygame.draw.rect(background, BLUE,(Width+8, Height*4, Width, Height))
+		timebox[13] = pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[14] :
-		timebox[14] = pygame.draw.rect(background, RED,(Width+8, Height*5, Width, Height))
+		timebox[14] = pygame.draw.rect(background, RED,(BoxWidth, BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[14] = pygame.draw.rect(background, BLUE,(Width+8, Height*5, Width, Height))
+		timebox[14] = pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[15] :
-		timebox[15] = pygame.draw.rect(background, RED,(Width+8, Height*6, Width, Height))
+		timebox[15] = pygame.draw.rect(background, RED,(BoxWidth, BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[15] = pygame.draw.rect(background, BLUE,(Width+8, Height*6, Width, Height))
+		timebox[15] = pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[16] :
-		timebox[16] = pygame.draw.rect(background, RED,(Width+8, Height*7, Width, Height))
+		timebox[16] = pygame.draw.rect(background, RED,(BoxWidth, BoxHeight*7, BoxWidth, BoxHeight))
 	else:
-		timebox[16] = pygame.draw.rect(background, BLUE,(Width+8, Height*7, Width, Height))
+		timebox[16] = pygame.draw.rect(background, BLUE,(BoxWidth, BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[17] :
-		timebox[17] = pygame.draw.rect(background, RED,(((Width*2)+8), 0, Width, Height))
+		timebox[17] = pygame.draw.rect(background, RED,(((BoxWidth*2)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[17] = pygame.draw.rect(background, BLUE,(((Width*2)+8), 0, Width, Height))
+		timebox[17] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[18] :
-		timebox[18] = pygame.draw.rect(background, RED,(((Width*2)+8), Height, Width, Height))
+		timebox[18] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[18] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height, Width, Height))
+		timebox[18] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[19] :
-		timebox[19] = pygame.draw.rect(background, RED,(((Width*2)+8), Height*2, Width, Height))
+		timebox[19] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[19] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height*2, Width, Height))
+		timebox[19] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[20] :
-		timebox[20] = pygame.draw.rect(background, RED,(((Width*2)+8), Height*3, Width, Height))
+		timebox[20] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[20] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height*3, Width, Height))
+		timebox[20] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[21] :
-		timebox[21] = pygame.draw.rect(background, RED,(((Width*2)+8), Height*4, Width, Height))
+		timebox[21] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[21] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height*4, Width, Height))
+		timebox[21] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[22] :
-		timebox[22] = pygame.draw.rect(background, RED,(((Width*2)+8), Height*5, Width, Height))
+		timebox[22] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[22] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height*5, Width, Height))
+		timebox[22] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[23] :
-		timebox[23] = pygame.draw.rect(background, RED,(((Width*2)+8), Height*6, Width, Height))
+		timebox[23] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[23] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height*6, Width, Height))
+		timebox[23] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[24] :
-		timebox[24] = pygame.draw.rect(background, RED,(((Width*2)+8), Height*7, Width, Height))
+		timebox[24] = pygame.draw.rect(background, RED,(((BoxWidth*2)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[24] = pygame.draw.rect(background, BLUE,(((Width*2)+8), Height*7, Width, Height))
+		timebox[24] = pygame.draw.rect(background, BLUE,(((BoxWidth*2)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[25] :
-		timebox[25] = pygame.draw.rect(background, RED,(((Width*3)+8), 0, Width, Height))
+		timebox[25] = pygame.draw.rect(background, RED,(((BoxWidth*3)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[25] = pygame.draw.rect(background, BLUE,(((Width*3)+8), 0, Width, Height))
+		timebox[25] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[26] :
-		timebox[26] = pygame.draw.rect(background, RED,(((Width*3)+8), Height, Width, Height))
+		timebox[26] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[26] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height, Width, Height))
+		timebox[26] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[27] :
-		timebox[27] = pygame.draw.rect(background, RED,(((Width*3)+8), Height*2, Width, Height))
+		timebox[27] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[27] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height*2, Width, Height))
+		timebox[27] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[28] :
-		timebox[28] = pygame.draw.rect(background, RED,(((Width*3)+8), Height*3, Width, Height))
+		timebox[28] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[28] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height*3, Width, Height))
+		timebox[28] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[29] :
-		timebox[29] = pygame.draw.rect(background, RED,(((Width*3)+8), Height*4, Width, Height))
+		timebox[29] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[29] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height*4, Width, Height))
+		timebox[29] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[30] :
-		timebox[30] = pygame.draw.rect(background, RED,(((Width*3)+8), Height*5, Width, Height))
+		timebox[30] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[30] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height*5, Width, Height))
+		timebox[30] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[31] :
-		timebox[31] = pygame.draw.rect(background, RED,(((Width*3)+8), Height*6, Width, Height))
+		timebox[31] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[31] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height*6, Width, Height))
+		timebox[31] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[32] :
-		timebox[32] = pygame.draw.rect(background, RED,(((Width*3)+8), Height*7, Width, Height))
+		timebox[32] = pygame.draw.rect(background, RED,(((BoxWidth*3)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[32] = pygame.draw.rect(background, BLUE,(((Width*3)+8), Height*7, Width, Height))
+		timebox[32] = pygame.draw.rect(background, BLUE,(((BoxWidth*3)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[33] :
-		timebox[33] = pygame.draw.rect(background, RED,(((Width*4)+8), 0, Width, Height))
+		timebox[33] = pygame.draw.rect(background, RED,(((BoxWidth*4)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[33] = pygame.draw.rect(background, BLUE,(((Width*4)+8), 0, Width, Height))
+		timebox[33] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[34] :
-		timebox[34] = pygame.draw.rect(background, RED,(((Width*4)+8), Height, Width, Height))
+		timebox[34] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[34] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height, Width, Height))
+		timebox[34] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[35] :
-		timebox[35] = pygame.draw.rect(background, RED,(((Width*4)+8), Height*2, Width, Height))
+		timebox[35] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[35] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height*2, Width, Height))
+		timebox[35] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[36] :
-		timebox[36] = pygame.draw.rect(background, RED,(((Width*4)+8), Height*3, Width, Height))
+		timebox[36] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[36] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height*3, Width, Height))
+		timebox[36] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[37] :
-		timebox[37] = pygame.draw.rect(background, RED,(((Width*4)+8), Height*4, Width, Height))
+		timebox[37] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[37] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height*4, Width, Height))
+		timebox[37] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[38] :
-		timebox[38] = pygame.draw.rect(background, RED,(((Width*4)+8), Height*5, Width, Height))
+		timebox[38] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[38] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height*5, Width, Height))
+		timebox[38] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[39] :
-		timebox[39] = pygame.draw.rect(background, RED,(((Width*4)+8), Height*6, Width, Height))
+		timebox[39] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[39] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height*6, Width, Height))
+		timebox[39] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[40] :
-		timebox[40] = pygame.draw.rect(background, RED,(((Width*4)+8), Height*7, Width, Height))
+		timebox[40] = pygame.draw.rect(background, RED,(((BoxWidth*4)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[40] = pygame.draw.rect(background, BLUE,(((Width*4)+8), Height*7, Width, Height))
+		timebox[40] = pygame.draw.rect(background, BLUE,(((BoxWidth*4)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[41] :
-		timebox[41] = pygame.draw.rect(background, RED,(((Width*5)+8), 0, Width, Height))
+		timebox[41] = pygame.draw.rect(background, RED,(((BoxWidth*5)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[41] = pygame.draw.rect(background, BLUE,(((Width*5)+8), 0, Width, Height))
+		timebox[41] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[42] :
-		timebox[42] = pygame.draw.rect(background, RED,(((Width*5)+8), Height, Width, Height))
+		timebox[42] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[42] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height, Width, Height))
+		timebox[42] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[43] :
-		timebox[43] = pygame.draw.rect(background, RED,(((Width*5)+8), Height*2, Width, Height))
+		timebox[43] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[43] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height*2, Width, Height))
+		timebox[43] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[44] :
-		timebox[44] = pygame.draw.rect(background, RED,(((Width*5)+8), Height*3, Width, Height))
+		timebox[44] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[44] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height*3, Width, Height))
+		timebox[44] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[45] :
-		timebox[45] = pygame.draw.rect(background, RED,(((Width*5)+8), Height*4, Width, Height))
+		timebox[45] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[45] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height*4, Width, Height))
+		timebox[45] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[46] :
-		timebox[46] = pygame.draw.rect(background, RED,(((Width*5)+8), Height*5, Width, Height))
+		timebox[46] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[46] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height*5, Width, Height))
+		timebox[46] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[47] :
-		timebox[47] = pygame.draw.rect(background, RED,(((Width*5)+8), Height*6, Width, Height))
+		timebox[47] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[47] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height*6, Width, Height))
+		timebox[47] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[48] :
-		timebox[48] = pygame.draw.rect(background, RED,(((Width*5)+8), Height*7, Width, Height))
+		timebox[48] = pygame.draw.rect(background, RED,(((BoxWidth*5)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[48] = pygame.draw.rect(background, BLUE,(((Width*5)+8), Height*7, Width, Height))
+		timebox[48] = pygame.draw.rect(background, BLUE,(((BoxWidth*5)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[49] :
-		timebox[49] = pygame.draw.rect(background, RED,(((Width*6)+8), 0, Width, Height))
+		timebox[49] = pygame.draw.rect(background, RED,(((BoxWidth*6)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[49] = pygame.draw.rect(background, BLUE,(((Width*6)+8), 0, Width, Height))
+		timebox[49] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[50] :
-		timebox[50] = pygame.draw.rect(background, RED,(((Width*6)+8), Height, Width, Height))
+		timebox[50] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[50] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height, Width, Height))
+		timebox[50] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[51] :
-		timebox[51] = pygame.draw.rect(background, RED,(((Width*6)+8), Height*2, Width, Height))
+		timebox[51] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[51] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height*2, Width, Height))
+		timebox[51] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[52] :
-		timebox[52] = pygame.draw.rect(background, RED,(((Width*6)+8), Height*3, Width, Height))
+		timebox[52] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[52] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height*3, Width, Height))
+		timebox[52] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[53] :
-		timebox[53] = pygame.draw.rect(background, RED,(((Width*6)+8), Height*4, Width, Height))
+		timebox[53] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[53] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height*4, Width, Height))
+		timebox[53] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[54] :
-		timebox[54] = pygame.draw.rect(background, RED,(((Width*6)+8), Height*5, Width, Height))
+		timebox[54] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[54] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height*5, Width, Height))
+		timebox[54] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[55] :
-		timebox[55] = pygame.draw.rect(background, RED,(((Width*6)+8), Height*6, Width, Height))
+		timebox[55] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[55] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height*6, Width, Height))
+		timebox[55] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[56] :
-		timebox[56] = pygame.draw.rect(background, RED,(((Width*6)+8), Height*7, Width, Height))
+		timebox[56] = pygame.draw.rect(background, RED,(((BoxWidth*6)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[56] = pygame.draw.rect(background, BLUE,(((Width*6)+8), Height*7, Width, Height))
+		timebox[56] = pygame.draw.rect(background, BLUE,(((BoxWidth*6)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[57] :
-		timebox[57] = pygame.draw.rect(background, RED,(((Width*7)+8), 0, Width, Height))
+		timebox[57] = pygame.draw.rect(background, RED,(((BoxWidth*7)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[57] = pygame.draw.rect(background, BLUE,(((Width*7)+8), 0, Width, Height))
+		timebox[57] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[58] :
-		timebox[58] = pygame.draw.rect(background, RED,(((Width*7)+8), Height, Width, Height))
+		timebox[58] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[58] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height, Width, Height))
+		timebox[58] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[59] :
-		timebox[59] = pygame.draw.rect(background, RED,(((Width*7)+8), Height*2, Width, Height))
+		timebox[59] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[59] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height*2, Width, Height))
+		timebox[59] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[60] :
-		timebox[60] = pygame.draw.rect(background, RED,(((Width*7)+8), Height*3, Width, Height))
+		timebox[60] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[60] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height*3, Width, Height))
+		timebox[60] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[61] :
-		timebox[61] = pygame.draw.rect(background, RED,(((Width*7)+8), Height*4, Width, Height))
+		timebox[61] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[61] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height*4, Width, Height))
+		timebox[61] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[62] :
-		timebox[62] = pygame.draw.rect(background, RED,(((Width*7)+8), Height*5, Width, Height))
+		timebox[62] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[62] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height*5, Width, Height))
+		timebox[62] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[63] :
-		timebox[63] = pygame.draw.rect(background, RED,(((Width*7)+8), Height*6, Width, Height))
+		timebox[63] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[63] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height*6, Width, Height))
+		timebox[63] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[64] :
-		timebox[64] = pygame.draw.rect(background, RED,(((Width*7)+8), Height*7, Width, Height))
+		timebox[64] = pygame.draw.rect(background, RED,(((BoxWidth*7)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[64] = pygame.draw.rect(background, BLUE,(((Width*7)+8), Height*7, Width, Height))
+		timebox[64] = pygame.draw.rect(background, BLUE,(((BoxWidth*7)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[65] :
-		timebox[65] = pygame.draw.rect(background, RED,(((Width*8)+8), 0, Width, Height))
+		timebox[65] = pygame.draw.rect(background, RED,(((BoxWidth*8)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[65] = pygame.draw.rect(background, BLUE,(((Width*8)+8), 0, Width, Height))
+		timebox[65] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[66] :
-		timebox[66] = pygame.draw.rect(background, RED,(((Width*8)+8), Height, Width, Height))
+		timebox[66] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[66] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height, Width, Height))
+		timebox[66] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[67] :
-		timebox[67] = pygame.draw.rect(background, RED,(((Width*8)+8), Height*2, Width, Height))
+		timebox[67] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[67] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height*2, Width, Height))
+		timebox[67] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[68] :
-		timebox[68] = pygame.draw.rect(background, RED,(((Width*8)+8), Height*3, Width, Height))
+		timebox[68] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[68] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height*3, Width, Height))
+		timebox[68] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[69] :
-		timebox[69] = pygame.draw.rect(background, RED,(((Width*8)+8), Height*4, Width, Height))
+		timebox[69] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[69] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height*4, Width, Height))
+		timebox[69] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[70] :
-		timebox[70] = pygame.draw.rect(background, RED,(((Width*8)+8), Height*5, Width, Height))
+		timebox[70] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[70] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height*5, Width, Height))
+		timebox[70] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[71] :
-		timebox[71] = pygame.draw.rect(background, RED,(((Width*8)+8), Height*6, Width, Height))
+		timebox[71] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[71] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height*6, Width, Height))
+		timebox[71] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[72] :
-		timebox[72] = pygame.draw.rect(background, RED,(((Width*8)+8), Height*7, Width, Height))
+		timebox[72] = pygame.draw.rect(background, RED,(((BoxWidth*8)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[72] = pygame.draw.rect(background, BLUE,(((Width*8)+8), Height*7, Width, Height))
+		timebox[72] = pygame.draw.rect(background, BLUE,(((BoxWidth*8)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[73] :
-		timebox[73] = pygame.draw.rect(background, RED,(((Width*9)+8), 0, Width, Height))
+		timebox[73] = pygame.draw.rect(background, RED,(((BoxWidth*9)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[73] = pygame.draw.rect(background, BLUE,(((Width*9)+8), 0, Width, Height))
+		timebox[73] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[74] :
-		timebox[74] = pygame.draw.rect(background, RED,(((Width*9)+8), Height, Width, Height))
+		timebox[74] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[74] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height, Width, Height))
+		timebox[74] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[75] :
-		timebox[75] = pygame.draw.rect(background, RED,(((Width*9)+8), Height*2, Width, Height))
+		timebox[75] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[75] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height*2, Width, Height))
+		timebox[75] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[76] :
-		timebox[76] = pygame.draw.rect(background, RED,(((Width*9)+8), Height*3, Width, Height))
+		timebox[76] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[76] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height*3, Width, Height))
+		timebox[76] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[77] :
-		timebox[77] = pygame.draw.rect(background, RED,(((Width*9)+8), Height*4, Width, Height))
+		timebox[77] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[77] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height*4, Width, Height))
+		timebox[77] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[78] :
-		timebox[78] = pygame.draw.rect(background, RED,(((Width*9)+8), Height*5, Width, Height))
+		timebox[78] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[78] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height*5, Width, Height))
+		timebox[78] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[79] :
-		timebox[79] = pygame.draw.rect(background, RED,(((Width*9)+8), Height*6, Width, Height))
+		timebox[79] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[79] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height*6, Width, Height))
+		timebox[79] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[80] :
-		timebox[80] = pygame.draw.rect(background, RED,(((Width*9)+8), Height*7, Width, Height))
+		timebox[80] = pygame.draw.rect(background, RED,(((BoxWidth*9)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[80] = pygame.draw.rect(background, BLUE,(((Width*9)+8), Height*7, Width, Height))
+		timebox[80] = pygame.draw.rect(background, BLUE,(((BoxWidth*9)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[81] :
-		timebox[81] = pygame.draw.rect(background, RED,(((Width*10)+8), 0, Width, Height))
+		timebox[81] = pygame.draw.rect(background, RED,(((BoxWidth*10)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[81] = pygame.draw.rect(background, BLUE,(((Width*10)+8), 0, Width, Height))
+		timebox[81] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[82] :
-		timebox[82] = pygame.draw.rect(background, RED,(((Width*10)+8), Height, Width, Height))
+		timebox[82] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[82] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height, Width, Height))
+		timebox[82] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[83] :
-		timebox[83] = pygame.draw.rect(background, RED,(((Width*10)+8), Height*2, Width, Height))
+		timebox[83] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[83] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height*2, Width, Height))
+		timebox[83] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[84] :
-		timebox[84] = pygame.draw.rect(background, RED,(((Width*10)+8), Height*3, Width, Height))
+		timebox[84] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[84] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height*3, Width, Height))
+		timebox[84] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[85] :
-		timebox[85] = pygame.draw.rect(background, RED,(((Width*10)+8), Height*4, Width, Height))
+		timebox[85] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[85] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height*4, Width, Height))
+		timebox[85] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[86] :
-		timebox[86] = pygame.draw.rect(background, RED,(((Width*10)+8), Height*5, Width, Height))
+		timebox[86] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[86] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height*5, Width, Height))
+		timebox[86] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[87] :
-		timebox[87] = pygame.draw.rect(background, RED,(((Width*10)+8), Height*6, Width, Height))
+		timebox[87] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[87] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height*6, Width, Height))
+		timebox[87] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[88] :
-		timebox[88] = pygame.draw.rect(background, RED,(((Width*10)+8), Height*7, Width, Height))
+		timebox[88] = pygame.draw.rect(background, RED,(((BoxWidth*10)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[88] = pygame.draw.rect(background, BLUE,(((Width*10)+8), Height*7, Width, Height))
+		timebox[88] = pygame.draw.rect(background, BLUE,(((BoxWidth*10)), BoxHeight*7, BoxWidth, BoxHeight))
 	if timeboxstatus[89] :
-		timebox[89] = pygame.draw.rect(background, RED,(((Width*11)+8), 0, Width, Height))
+		timebox[89] = pygame.draw.rect(background, RED,(((BoxWidth*11)), 0, BoxWidth, BoxHeight))
 	else :
-		timebox[89] = pygame.draw.rect(background, BLUE,(((Width*11)+8), 0, Width, Height))
+		timebox[89] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), 0, BoxWidth, BoxHeight))
 	if timeboxstatus[90] :
-		timebox[90] = pygame.draw.rect(background, RED,(((Width*11)+8), Height, Width, Height))
+		timebox[90] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight, BoxWidth, BoxHeight))
 	else :
-		timebox[90] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height, Width, Height))
+		timebox[90] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight, BoxWidth, BoxHeight))
 	if timeboxstatus[91] :
-		timebox[91] = pygame.draw.rect(background, RED,(((Width*11)+8), Height*2, Width, Height))
+		timebox[91] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight*2, BoxWidth, BoxHeight))
 	else :
-		timebox[91] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height*2, Width, Height))
+		timebox[91] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight*2, BoxWidth, BoxHeight))
 	if timeboxstatus[92] :
-		timebox[92] = pygame.draw.rect(background, RED,(((Width*11)+8), Height*3, Width, Height))
+		timebox[92] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight*3, BoxWidth, BoxHeight))
 	else :
-		timebox[92] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height*3, Width, Height))
+		timebox[92] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight*3, BoxWidth, BoxHeight))
 	if timeboxstatus[93] :
-		timebox[93] = pygame.draw.rect(background, RED,(((Width*11)+8), Height*4, Width, Height))
+		timebox[93] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight*4, BoxWidth, BoxHeight))
 	else :
-		timebox[93] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height*4, Width, Height))
+		timebox[93] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight*4, BoxWidth, BoxHeight))
 	if timeboxstatus[94] :
-		timebox[94] = pygame.draw.rect(background, RED,(((Width*11)+8), Height*5, Width, Height))
+		timebox[94] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight*5, BoxWidth, BoxHeight))
 	else :
-		timebox[94] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height*5, Width, Height))
+		timebox[94] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight*5, BoxWidth, BoxHeight))
 	if timeboxstatus[95] :
-		timebox[95] = pygame.draw.rect(background, RED,(((Width*11)+8), Height*6, Width, Height))
+		timebox[95] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight*6, BoxWidth, BoxHeight))
 	else :
-		timebox[95] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height*6, Width, Height))
+		timebox[95] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight*6, BoxWidth, BoxHeight))
 	if timeboxstatus[96] :
-		timebox[96] = pygame.draw.rect(background, RED,(((Width*11)+8), Height*7, Width, Height))
+		timebox[96] = pygame.draw.rect(background, RED,(((BoxWidth*11)), BoxHeight*7, BoxWidth, BoxHeight))
 	else :
-		timebox[96] = pygame.draw.rect(background, BLUE,(((Width*11)+8), Height*7, Width, Height))
+		timebox[96] = pygame.draw.rect(background, BLUE,(((BoxWidth*11)), BoxHeight*7, BoxWidth, BoxHeight))
 	
 	font = pygame.font.Font(None, 14)
 	hrs = 0
@@ -1003,121 +1056,126 @@ def TimeScreen1():# Mark the populated time screen as either Red:selected or Blu
 		timetextpos[w] = timebox[w].x+2, timebox[w].y+8
 		background.blit(timetext[w], timetextpos[w])
 		min = min + 15
-	OKbox = pygame.draw.rect(background, GREEN, (0, 0, 8, 240))
+	OKBoxSide = pygame.draw.rect(background, GREEN, ((Horizontal - OKSide), 0, Horizontal, Vertical))
 	OKtext = font.render("OK    OK    OK    OK    OK    OK    OK    OK    OK", 1, (BLACK))
 	OKtext = pygame.transform.rotate(OKtext,270)
-	OKtextpos = OKbox.x-1, OKbox.y+8
+	OKtextpos = OKBoxSide.x-1, OKBoxSide.y+8
+	OKBoxBottom = pygame.draw.rect(background, GREEN, (0, (Vertical - OKBottom), Horizontal, Vertical))
+	OKtext2 = font.render("OK      OK      OK      OK      OK      OK      OK      OK      OK", 1, (BLACK))
+	OKtext2pos = OKBoxBottom.x+(Horizontal/20), OKBoxBottom.y+(OKBottom/4)
 	background.blit(OKtext, OKtextpos)
+	background.blit(OKtext2, OKtext2pos)
 	screen.blit(background, (0, 0))
 	pygame.display.flip()
 
 def TimeSelect() :# Populate the time screen with blocks of 15 minutes
+	#print "TimeSelect()"
 	global timeboxstatus
 	clock = pygame.time.Clock()
 	clock.tick(20)
-	OKbox = pygame.draw.rect(background, GREEN, (0, 0, 8, 240))
-	timeboxout[1] = pygame.draw.rect(background, BLUE,(8, 0, Width, Height))
-	timeboxout[2] = pygame.draw.rect(background, BLACK,(8, Height, Width, Height),2)
-	timeboxout[3] = pygame.draw.rect(background, BLACK,(8, Height*2, Width, Height),2)
-	timeboxout[4] = pygame.draw.rect(background, BLACK,(8, Height*3, Width, Height),2)
-	timeboxout[5] = pygame.draw.rect(background, BLACK,(8, Height*4, Width, Height),2)
-	timeboxout[6] = pygame.draw.rect(background, BLACK,(8, Height*5, Width, Height),2)
-	timeboxout[7] = pygame.draw.rect(background, BLACK,(8, Height*6, Width, Height),2)
-	timeboxout[8] = pygame.draw.rect(background, BLACK,(8, Height*7, Width, Height),2)
-	timeboxout[9] = pygame.draw.rect(background, BLACK,(Width+8, 0, Width, Height),2)
-	timeboxout[10] = pygame.draw.rect(background, BLACK,(Width+8, Height, Width, Height),2)
-	timeboxout[11] = pygame.draw.rect(background, BLACK,(Width+8, Height*2, Width, Height),2)
-	timeboxout[12] = pygame.draw.rect(background, BLACK,(Width+8, Height*3, Width, Height),2)
-	timeboxout[13] = pygame.draw.rect(background, BLACK,(Width+8, Height*4, Width, Height),2)
-	timeboxout[14] = pygame.draw.rect(background, BLACK,(Width+8, Height*5, Width, Height),2)
-	timeboxout[15] = pygame.draw.rect(background, BLACK,(Width+8, Height*6, Width, Height),2)
-	timeboxout[16] = pygame.draw.rect(background, BLACK,(Width+8, Height*7, Width, Height),2)
-	timeboxout[17] = pygame.draw.rect(background, BLACK,(((Width*2)+8), 0, Width, Height),2)
-	timeboxout[18] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height, Width, Height),2)
-	timeboxout[19] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height*2, Width, Height),2)
-	timeboxout[20] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height*3, Width, Height),2)
-	timeboxout[21] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height*4, Width, Height),2)
-	timeboxout[22] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height*5, Width, Height),2)
-	timeboxout[23] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height*6, Width, Height),2)
-	timeboxout[24] = pygame.draw.rect(background, BLACK,(((Width*2)+8), Height*7, Width, Height),2)
-	timeboxout[25] = pygame.draw.rect(background, BLACK,(((Width*3)+8), 0, Width, Height),2)
-	timeboxout[26] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height, Width, Height),2)
-	timeboxout[27] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height*2, Width, Height),2)
-	timeboxout[28] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height*3, Width, Height),2)
-	timeboxout[29] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height*4, Width, Height),2)
-	timeboxout[30] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height*5, Width, Height),2)
-	timeboxout[31] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height*6, Width, Height),2)
-	timeboxout[32] = pygame.draw.rect(background, BLACK,(((Width*3)+8), Height*7, Width, Height),2)
-	timeboxout[33] = pygame.draw.rect(background, BLACK,(((Width*4)+8), 0, Width, Height),2)
-	timeboxout[34] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height, Width, Height),2)
-	timeboxout[35] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height*2, Width, Height),2)
-	timeboxout[36] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height*3, Width, Height),2)
-	timeboxout[37] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height*4, Width, Height),2)
-	timeboxout[38] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height*5, Width, Height),2)
-	timeboxout[39] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height*6, Width, Height),2)
-	timeboxout[40] = pygame.draw.rect(background, BLACK,(((Width*4)+8), Height*7, Width, Height),2)
-	timeboxout[41] = pygame.draw.rect(background, BLACK,(((Width*5)+8), 0, Width, Height),2)
-	timeboxout[42] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height, Width, Height),2)
-	timeboxout[43] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height*2, Width, Height),2)
-	timeboxout[44] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height*3, Width, Height),2)
-	timeboxout[45] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height*4, Width, Height),2)
-	timeboxout[46] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height*5, Width, Height),2)
-	timeboxout[47] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height*6, Width, Height),2)
-	timeboxout[48] = pygame.draw.rect(background, BLACK,(((Width*5)+8), Height*7, Width, Height),2)
-	timeboxout[49] = pygame.draw.rect(background, BLACK,(((Width*6)+8), 0, Width, Height),2)
-	timeboxout[50] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height, Width, Height),2)
-	timeboxout[51] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height*2, Width, Height),2)
-	timeboxout[52] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height*3, Width, Height),2)
-	timeboxout[53] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height*4, Width, Height),2)
-	timeboxout[54] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height*5, Width, Height),2)
-	timeboxout[55] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height*6, Width, Height),2)
-	timeboxout[56] = pygame.draw.rect(background, BLACK,(((Width*6)+8), Height*7, Width, Height),2)
-	timeboxout[57] = pygame.draw.rect(background, BLACK,(((Width*7)+8), 0, Width, Height),2)
-	timeboxout[58] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height, Width, Height),2)
-	timeboxout[59] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height*2, Width, Height),2)
-	timeboxout[60] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height*3, Width, Height),2)
-	timeboxout[61] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height*4, Width, Height),2)
-	timeboxout[62] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height*5, Width, Height),2)
-	timeboxout[63] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height*6, Width, Height),2)
-	timeboxout[64] = pygame.draw.rect(background, BLACK,(((Width*7)+8), Height*7, Width, Height),2)
-	timeboxout[65] = pygame.draw.rect(background, BLACK,(((Width*8)+8), 0, Width, Height),2)
-	timeboxout[66] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height, Width, Height),2)
-	timeboxout[67] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height*2, Width, Height),2)
-	timeboxout[68] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height*3, Width, Height),2)
-	timeboxout[69] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height*4, Width, Height),2)
-	timeboxout[70] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height*5, Width, Height),2)
-	timeboxout[71] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height*6, Width, Height),2)
-	timeboxout[72] = pygame.draw.rect(background, BLACK,(((Width*8)+8), Height*7, Width, Height),2)
-	timeboxout[73] = pygame.draw.rect(background, BLACK,(((Width*9)+8), 0, Width, Height),2)
-	timeboxout[74] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height, Width, Height),2)
-	timeboxout[75] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height*2, Width, Height),2)
-	timeboxout[76] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height*3, Width, Height),2)
-	timeboxout[77] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height*4, Width, Height),2)
-	timeboxout[78] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height*5, Width, Height),2)
-	timeboxout[79] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height*6, Width, Height),2)
-	timeboxout[80] = pygame.draw.rect(background, BLACK,(((Width*9)+8), Height*7, Width, Height),2)
-	timeboxout[81] = pygame.draw.rect(background, BLACK,(((Width*10)+8), 0, Width, Height),2)
-	timeboxout[82] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height, Width, Height),2)
-	timeboxout[83] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height*2, Width, Height),2)
-	timeboxout[84] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height*3, Width, Height),2)
-	timeboxout[85] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height*4, Width, Height),2)
-	timeboxout[86] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height*5, Width, Height),2)
-	timeboxout[87] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height*6, Width, Height),2)
-	timeboxout[88] = pygame.draw.rect(background, BLACK,(((Width*10)+8), Height*7, Width, Height),2)
-	timeboxout[89] = pygame.draw.rect(background, BLACK,(((Width*11)+8), 0, Width, Height),2)
-	timeboxout[90] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height, Width, Height),2)
-	timeboxout[91] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height*2, Width, Height),2)
-	timeboxout[92] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height*3, Width, Height),2)
-	timeboxout[93] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height*4, Width, Height),2)
-	timeboxout[94] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height*5, Width, Height),2)
-	timeboxout[95] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height*6, Width, Height),2)
-	timeboxout[96] = pygame.draw.rect(background, BLACK,(((Width*11)+8), Height*7, Width, Height),2)
+	OKBoxSide = pygame.draw.rect(background, GREEN, ((Horizontal - OKSide), 0, Horizontal, Vertical))
+	OKBoxBottom = pygame.draw.rect(background, GREEN, (0, (Vertical - OKBottom), Horizontal, Vertical))
+	timeboxout[1] = pygame.draw.rect(background, BLUE,(0, 0, BoxWidth, BoxHeight))
+	timeboxout[2] = pygame.draw.rect(background, BLACK,(0, BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[3] = pygame.draw.rect(background, BLACK,(0, BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[4] = pygame.draw.rect(background, BLACK,(0, BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[5] = pygame.draw.rect(background, BLACK,(0, BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[6] = pygame.draw.rect(background, BLACK,(0, BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[7] = pygame.draw.rect(background, BLACK,(0, BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[8] = pygame.draw.rect(background, BLACK,(0, BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[9] = pygame.draw.rect(background, BLACK,(BoxWidth, 0, BoxWidth, BoxHeight),2)
+	timeboxout[10] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[11] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[12] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[13] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[14] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[15] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[16] = pygame.draw.rect(background, BLACK,(BoxWidth, BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[17] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[18] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[19] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[20] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[21] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[22] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[23] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[24] = pygame.draw.rect(background, BLACK,(((BoxWidth*2)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[25] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[26] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[27] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[28] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[29] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[30] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[31] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[32] = pygame.draw.rect(background, BLACK,(((BoxWidth*3)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[33] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[34] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[35] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[36] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[37] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[38] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[39] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[40] = pygame.draw.rect(background, BLACK,(((BoxWidth*4)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[41] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[42] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[43] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[44] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[45] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[46] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[47] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[48] = pygame.draw.rect(background, BLACK,(((BoxWidth*5)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[49] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[50] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[51] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[52] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[53] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[54] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[55] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[56] = pygame.draw.rect(background, BLACK,(((BoxWidth*6)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[57] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[58] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[59] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[60] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[61] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[62] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[63] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[64] = pygame.draw.rect(background, BLACK,(((BoxWidth*7)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[65] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[66] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[67] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[68] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[69] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[70] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[71] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[72] = pygame.draw.rect(background, BLACK,(((BoxWidth*8)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[73] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[74] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[75] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[76] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[77] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[78] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[79] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[80] = pygame.draw.rect(background, BLACK,(((BoxWidth*9)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[81] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[82] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[83] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[84] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[85] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[86] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[87] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[88] = pygame.draw.rect(background, BLACK,(((BoxWidth*10)), BoxHeight*7, BoxWidth, BoxHeight),2)
+	timeboxout[89] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), 0, BoxWidth, BoxHeight),2)
+	timeboxout[90] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight, BoxWidth, BoxHeight),2)
+	timeboxout[91] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight*2, BoxWidth, BoxHeight),2)
+	timeboxout[92] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight*3, BoxWidth, BoxHeight),2)
+	timeboxout[93] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight*4, BoxWidth, BoxHeight),2)
+	timeboxout[94] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight*5, BoxWidth, BoxHeight),2)
+	timeboxout[95] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight*6, BoxWidth, BoxHeight),2)
+	timeboxout[96] = pygame.draw.rect(background, BLACK,(((BoxWidth*11)), BoxHeight*7, BoxWidth, BoxHeight),2)
 	global selecting
 	selecting = True
 	TimeScreen1()
 	# run the game loop
 	while selecting:
-		
 		for event in pygame.event.get():
 			if event.type == QUIT:
 				pygame.quit()
@@ -1134,20 +1192,25 @@ def TimeSelect() :# Populate the time screen with blocks of 15 minutes
 							timeboxstatus[x] = True
 							WriteJSONFile()
 							TimeScreen1()
-					if OKbox.collidepoint(pygame.mouse.get_pos()):
-						selecting = False
+			if OKBoxSide.collidepoint(pygame.mouse.get_pos()):
+					selecting = False
+			if OKBoxBottom.collidepoint(pygame.mouse.get_pos()):
+					selecting = False
 			elif event.type == KEYDOWN and event.key == K_ESCAPE:
 				selecting = False
 		
-		pygame.display.update()
-
+		#pygame.display.update()
+	Screen1Refresh()
 def XMLWriteRequestCheck() :# Checks if a the XML is to be written to and writes to it.  This avoids two processes writing at the same time
+	#print "XMLWriteRequestCheck()"
 	global XMLWriteRequest
 	if (XMLWriteRequest == True) :
 		WriteXML()
+		ReadXML()
 		XMLWriteRequest = False
-
+	
 def RelayTimedMode() :# If the heating is in timed mode this checks the current time and if the slot is marked as true it turns on the relay
+	#print "RelayTimedMode()"
 	jsonTimer = time.time()
 	jsonTimerDelay = jsonTimer + 60
 	global SystemMode
@@ -1375,7 +1438,8 @@ def RelayTimedMode() :# If the heating is in timed mode this checks the current 
 					RelayStatus = False
 					XMLWriteRequest = True
 	
-def TimerBox():# This function runs the Boost mode, counts down the timer, changes it to hrs+mins and displays it on screen and once the mode is active and the timer is greater than 0, it turns on the relay.
+def TimerBox():# Runs the Boost mode, counts down the timer, changes it to hrs+mins and displays it on screen and once the mode is active and the timer is greater than 0, it turns on the relay.
+	#print "TimerBox()"
 	global SystemMode
 	global BoostDelay
 	global BoostCount
@@ -1386,8 +1450,6 @@ def TimerBox():# This function runs the Boost mode, counts down the timer, chang
 	global RelayStatus
 	global PreviousSystemModeBoost
 	global screenRefreshRequested
-	#print "BoostDelay: ", BoostDelay, "BoostCount: ", BoostCount
-	
 	TIMER = int(BoostDelay - (time.time() - BoostCount))
 	#print "TIMER:", TIMER
 	if SystemMode == 1 and TIMER > 0:
@@ -1400,16 +1462,12 @@ def TimerBox():# This function runs the Boost mode, counts down the timer, chang
 			GPIO.output(GPIO_RED_LED, True)
 			RelayStatus = True
 			XMLWriteRequest = True
-		timertext = font.render(BoostTimer, 1, (RED), (BLUE))
-		background.blit(timertext, (0, 160))
-		screen.blit(background, (0, 0))
-		pygame.display.flip()
 		if ((time.time() - XMLWriteTime) > XMLWriteDelay) :	
 			print "Writing Time to XML"
 			WriteXML()	
 			XMLWriteTime = time.time()
 	elif SystemMode == 1 and TIMER <= 0:
-		print "TIMEROUT"
+		#print "TIMEROUT"
 				
 		if GPIO.input(GPIO_RELAY) == True :
 			print "Turning Off", "PreviousSystem = ", PreviousSystemModeBoost
@@ -1422,7 +1480,11 @@ def TimerBox():# This function runs the Boost mode, counts down the timer, chang
 			screenRefreshRequested = True
 			RelayStatus = False
 			WriteXML()	
-		
+		else :
+			print "BoostMode Relay Off Timedout"
+			#if PreviousSystemModeBoost != 0 :
+			PreviousSystemModeBoost = 0
+			SystemMode = 0
 def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it's on and available) and waits for response.  
 	global retryTimes
 	global Upstairs
@@ -1431,6 +1493,7 @@ def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it
 	global socket2Open
 	global ESP8266Online
 	global MessageSent
+	global screenRefreshRequested
 	if (socket2Open) :
 		try: 
 			sock2.sendall(data)
@@ -1444,6 +1507,7 @@ def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it
 					XMLWriteRequest = True
 					MessageSent = True
 					GPIO.output(GPIO_GREEN_LED, True)
+					screenRefreshRequested = True
 					print "MessageSent1 = ", MessageSent
 				else :
 					print "Send Failure"
@@ -1476,6 +1540,7 @@ def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it
 					print "MessageSent2 = ", MessageSent
 					ESP8266Online = True
 					XMLWriteRequest = True
+					screenRefreshRequested = True
 		except Exception, e:
 			print "TCPClientSend", repr(e)
 			print "Sending data to Zone Controller timed out on message ", data
@@ -1489,21 +1554,23 @@ def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it
 				socket2Open = False
 				ESP8266Online = False
 				GPIO.output(GPIO_GREEN_LED, False)
+				screenRefreshRequested = True
 			XMLWriteRequest = True
 	else :
 		print "TCPClientSend socket closed"
 		openSocket2()
 	
 	if MessageSent == True:
-		print "MessageSent3 = ", MessageSent
+		#print "MessageSent3 = ", MessageSent
 		MessageSent = False
-		print "MessageSent4= ", MessageSent
+		#print "MessageSent4= ", MessageSent
 		return True
 	elif MessageSent == False:
-		print "MessageSent5 = ", MessageSent
+		#print "MessageSent5 = ", MessageSent
 		return False
-		
+
 def SystemModeCheck():# This checks the current system mode and initiates changes based on that variable including Downstairs and Upstairs valve changes.  This avoids two processes writing at the same time
+	#print "SystemModeCheck()"
 	global zoneUpChange
 	global zoneDownChange
 	global screenRefreshRequested
@@ -1530,6 +1597,7 @@ def SystemModeCheck():# This checks the current system mode and initiates change
 		while retryTimes < 2 :
 			if TCPClientSend("upstairs1") :
 				print "TCPClientSendStatus = True"
+				
 				Upstairs = True
 			else :
 				print "TCPClientSendStatus = False"
@@ -1542,6 +1610,7 @@ def SystemModeCheck():# This checks the current system mode and initiates change
 	if (Downstairs == False) and (zoneDownChange == True):
 		while retryTimes < 2 :
 			if TCPClientSend("downstairs0") :
+				
 				Downstairs = False
 			else:
 				Downstairs = True
@@ -1564,6 +1633,7 @@ def SystemModeCheck():# This checks the current system mode and initiates change
 	if (SystemMode == 1) :
 		TimerBox()
 	elif (SystemMode == 2) :
+		#ReadJSONFile()
 		RelayTimedMode()
 	elif (SystemMode == 3) :
 		if GPIO.input(GPIO_RELAY) == False :
@@ -1577,15 +1647,30 @@ def SystemModeCheck():# This checks the current system mode and initiates change
 			GPIO.output(GPIO_RED_LED, False)
 			RelayStatus = False
 			XMLWriteRequest = True
-	if screenRefreshRequested == True :
-		screenRefreshRequested = False
-		Screen1Refresh()
 	
 	if (time.time() - ESP8266PreviousCheck) > ESP8266CheckDelay :
 		TCPClientSend("status")
 		ESP8266PreviousCheck = time.time()
 		
 def main():#The main functions of the program and handles the touchscreen
+	
+	#clock = pygame.time.Clock()
+	#clock.tick(20)#Sets the refresh rate
+	global runningCheck
+	while running == True:
+		try:
+			SystemModeCheck()
+			XMLWriteRequestCheck()
+			if ((time.time() - runningCheck) > runningDelay) :
+				#print "Running Main"
+				print "Active Threads = ", threading.activeCount();
+				#print "Listen433Loops = ", Listen433Loops
+				runningCheck = time.time()
+			#print "Running Main"
+		except Exception, e:
+			print "main", repr(e)
+	print "Running = False"	
+def screenHandler():#Handles the touchscreen
 	
 	clock = pygame.time.Clock()
 	clock.tick(20)#Sets the refresh rate
@@ -1601,16 +1686,17 @@ def main():#The main functions of the program and handles the touchscreen
 	global zoneUpChange
 	global zoneDownChange
 	global PreviousSystemModeBoost
+	global screenRefreshRequested
+	print "ScreenHANDLER"
 	while running == True:
 		try:
+			#print "Running ScreenHandler"
 			ClockTime()
-			SystemModeCheck()
-			XMLWriteRequestCheck()
-			if ((time.time() - runningCheck) > runningDelay) :
-				print "Running"
-				print "Active Threads = ", threading.activeCount();
-				#print "Listen433Loops = ", Listen433Loops
-				runningCheck = time.time()
+			if screenRefreshRequested == True :
+				screenRefreshRequested = False
+				Screen1Refresh()
+			
+	
 			for event in pygame.event.get():
 				if event.type == QUIT:
 					pygame.quit()
@@ -1622,17 +1708,18 @@ def main():#The main functions of the program and handles the touchscreen
 					#print("Pos: %sx%s\n" % pygame.mouse.get_pos())
 					if box1.collidepoint(pygame.mouse.get_pos()): # Off Button Pressed
 						SystemMode = 0
-						WriteXML()
+						XMLWriteRequest = True
 						screenRefreshRequested = True
-					
+						#Screen1Refresh()
 					elif box2.collidepoint(pygame.mouse.get_pos()):
 						if Upstairs == True :
 							Upstairs = False
 						else :
 							Upstairs = True
 						zoneUpChange = True
-						WriteXML()	
+						XMLWriteRequest = True	
 						screenRefreshRequested = True
+						#Screen1Refresh()
 					
 					elif box3.collidepoint(pygame.mouse.get_pos()):
 						Downstairs != Downstairs
@@ -1641,8 +1728,9 @@ def main():#The main functions of the program and handles the touchscreen
 						else :
 							Downstairs = True
 						zoneDownChange = True
-						WriteXML()
+						XMLWriteRequest = True
 						screenRefreshRequested = True
+						#Screen1Refresh()
 						
 					elif box4.collidepoint(pygame.mouse.get_pos()):
 						Screen1Refresh()
@@ -1655,31 +1743,34 @@ def main():#The main functions of the program and handles the touchscreen
 							BoostDelay = BoostDelay + 1800
 							if BoostDelay >= 18000 :
 								BoostDelay = 18000
-						WriteXML()
+						XMLWriteRequest = True
 						screenRefreshRequested = True
+						#Screen1Refresh()
 						
 					elif box5.collidepoint(pygame.mouse.get_pos()):
 						SystemMode = 2
 						TimeScreen1()
 						TimeSelect()
-						WriteXML()
+						XMLWriteRequest = True
 						screenRefreshRequested = True
+						#Screen1Refresh()
 						
 					elif box6.collidepoint(pygame.mouse.get_pos()):
 						SystemMode = 3
-						WriteXML()
+						XMLWriteRequest = True
 						screenRefreshRequested = True
+						#Screen1Refresh()
 					
-					if (SystemMode == 2) :
-						ReadJSONFile()
-				
 				elif event.type == KEYDOWN and event.key == K_ESCAPE:
 					running = False
 					listening = False
-			pygame.display.update()
+					print "Keydown/KeyEscape Event"
+			#print "End of ScreenHandler"
+			#print "Running=",running
+			#pygame.display.update()
 		except Exception, e:
-			print "main", repr(e)
-				
+			print "screenHandler", repr(e)
+					
 class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP instructions from the website
 	def handle(self):
 		global SystemMode
@@ -1692,6 +1783,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP i
 		global XMLWriteRequest
 		global zoneUpChange
 		global zoneDownChange
+		global screenRefreshRequested
 		self.data = self.request.recv(1024).strip()
 		print "{} wrote:".format(self.client_address[0])
 		print self.data
@@ -1700,6 +1792,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP i
 		if ((self.data) == "Off") :
 			SystemMode = 0
 			XMLWriteRequest = True
+			screenRefreshRequested = True
 		if ((self.data) == "Timer") :
 			
 			if SystemMode != 1 :
@@ -1711,14 +1804,15 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP i
 				if BoostDelay >= 18000 :
 					BoostDelay = 18000
 			XMLWriteRequest = True
-			
+			screenRefreshRequested = True
 		if ((self.data) == "Timed") :
 			SystemMode = 2
-			
 			XMLWriteRequest = True
+			screenRefreshRequested = True
 		if ((self.data) == "Constant") :
 			SystemMode = 3
 			XMLWriteRequest = True
+			screenRefreshRequested = True
 		if ((self.data) == "Upstairs") :
 			print "Upstairs: " , Upstairs
 			print "Got Upstairs"
@@ -1728,6 +1822,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP i
 				Upstairs = False
 			zoneUpChange = True
 			XMLWriteRequest = True
+			screenRefreshRequested = True
 		if ((self.data) == "Downstairs") :
 			print "Got Downstairs"
 			if (Downstairs == False) or (Downstairs =="False") :
@@ -1736,7 +1831,12 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP i
 				Downstairs = False
 			zoneDownChange = True
 			XMLWriteRequest = True
-
+			screenRefreshRequested = True
+		if ((self.data) == "XMLUpdate") :
+			XMLWriteRequest = True
+			screenRefreshRequested = True
+			ReadJSONFile()
+			print "GOT XMLUPDATE"
 		if listening == False :
 			print "Shutdown Server"
 			server.server_close()
@@ -1754,12 +1854,19 @@ def TCPListen() :#Function to start listening for instructions from the website
 def ListenSend433() :#Function to listen for OilLevel readings (over 433mhz) --- possibly outside temperature also at a later date
 	global OilLevel
 	global OilLevelText
+	global OutsideTemp
+	global OutsideTempText
+	global OutsideBatt
+	global OutsideBattText
 	global listening
+	global screenRefreshRequested
+	global XMLWriteRequestCheck
 	#global Listen433Loops
 	print ("Initialising PIGPIO daemon")
 	os.system('sudo /home/pi/PIGPIO/pigpiod')
 	pi = pigpio.pi()
-	rx = piVirtualWire.rx(pi, GPIO_RX, 2000) # Set pigpio instance, TX module GPIO pin and baud rate
+	rx = piVirtualWire.rx(pi, GPIO_RX, 2000) # Set pigpio instance, RX module GPIO pin and baud rate
+	tx = piVirtualWire.tx(pi, GPIO_TX, 2000) # Set pigpio instance, TX module GPIO pin and baud rate
 	data = ""
 	while listening == True :
 		try :
@@ -1775,48 +1882,88 @@ def ListenSend433() :#Function to listen for OilLevel readings (over 433mhz) ---
 				print "433 Received: ", stringMsg
 				data = stringMsg
 				while data != "":
+					dataAck=""
 					if not data: break
 					print "Received Data: ", data
 					if (listening == False) :
-						print "Listening", listening, "Exiting Thread"
+						print "Listening433", listening, "Exiting Thread"
+						tx.cancel()
 						rx.cancel()
 						pi.stop()
 						thread.exit()
-					elif (listening == True): 
-						print "Listening", listening
+					#elif (listening == True): 
+					#print "Listening433", listening
 					if data:
-						if "OilLevel" in data :
-							print "Arduino TCP Received", data
+						if "OL" in data :
+							print "Arduino 433 Received", data
 							try:
 								OilLevelInt = int(re.search(r'\d+', data).group())
+								OilLevel = str(OilLevelInt)
+								OilLevelText = "OilLevel = "
+								OilLevelText += OilLevel
+								XMLWriteRequest = True
+								screenRefreshRequested = True
+								dataAck = "ACKOL"
 							except ValueError :
 								OilLevel = "   "
-							
-							OilLevel = str(OilLevelInt)
-							OilLevelText = "OilLevel = "
-							OilLevelText += OilLevel
-							XMLWriteRequest = True
-							screenRefreshRequested = True
-							data = ""
-			time.sleep(0.5)
+								OilLevelText = "OilLevel = N/A"
+								dataAck = "NACKOL"
+						if "T" in data :
+							print "Arduino 433 Received", data
+							try :
+								TempString = data.strip('T')
+								TempFloat = float(TempString)
+								OutsideTemp = str(TempFloat)
+								OutsideTempText = "Ground Temp = "
+								OutsideTempText += OutsideTemp
+								print "Outside Temperature = ",OutsideTempText
+								XMLWriteRequest = True
+								screenRefreshRequested = True
+								dataAck = "ACKT"
+							except ValueError :
+								OutsideTemp = "   "
+								OutsideTempText = "Group Temp = N/A"
+								dataAck = "NACKT"
+						if "BV" in data :
+							print "Arduino 433 Received", data
+							try :
+								BattString = data.strip('BV')
+								BattFloat = float(BattString)
+								OutsideBatt = str(BattFloat)
+								OutsideBattText = "Battery Voltage = "
+								OutsideBattText += OutsideBatt
+								print "Outside Battery Voltage = ",OutsideBattText
+								XMLWriteRequest = True
+								screenRefreshRequested = True
+								dataAck = "ACKT"
+							except ValueError :
+								OutsideTemp = "   "
+								OutsideTempText = "Group Temp = N/A"
+								dataAck = "NACKT"		
+						tx.put(dataAck)
+						print "Acknowledging receipt of data :", dataAck
+						tx.waitForReady()
+						
+						data = ""
+			time.sleep(0.1)
 		except Exception, e:
 			print "ListenSend433", repr(e)
-			
+	tx.cancel()		
 	rx.cancel()
 	pi.stop()	
 	thread.exit()			
 
 if __name__ == '__main__' :
-	
 	HOST, PORT = '', 8889
 	server = SocketServer.TCPServer((HOST, PORT), MyTCPHandler)
 	try:
 		threading.Thread(target=ListenSend433).start()
 		threading.Thread(target=main).start()
+		threading.Thread(target=screenHandler).start()
 		server.serve_forever()
 		sleep(1)
 	except KeyboardInterrupt :
-		print "Running 1", running, ". Listening ", listening
+		#print "Running 1", running, ". Listening ", listening
 		print "Exiting"
 		running = False
 		listening = False
@@ -1836,7 +1983,7 @@ if __name__ == '__main__' :
 			listening = False
 			selecting = False
 			SystemMode = 0
-			print "Running 2", running, ". Listening ", listening
+			#print "Running 2", running, ". Listening ", listening
 			server.server_close()
 			server.shutdown()
 			GPIO.cleanup()

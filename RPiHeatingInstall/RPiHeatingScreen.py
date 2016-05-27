@@ -9,12 +9,12 @@ import RPi.GPIO as GPIO
 from threading import Timer
 from threading import Thread
 from evdev import InputDevice, list_devices
-
-GPIO_RED_LED = *RED_LED_GPIO_PIN
-GPIO_GREEN_LED = *GREEN_LED_GPIO_PIN
-GPIO_RELAY = *RELAY_GPIO_PIN
-Horizontal = *HORIZONTAL
-Vertical = *VERTICAL
+ 
+GPIO_RED_LED = 24
+GPIO_GREEN_LED = 23
+GPIO_RELAY = 22
+Horizontal = 320
+Vertical = 240
 
 newBoot = True
 XMLWriteRequest = False
@@ -45,12 +45,8 @@ running = True
 selecting = False
 screenRefreshRequested = False
 SystemMode = 0
-OilLevel = 0
+OilLevel = 9
 OilLevelText = "OilLevel = 999"
-OilLevelText = "OilLevel = n/a"
-OutsideTemp = 0
-OutsideTempText = "n/a"
-OutsideBatt = 0
 MessageSent = False
 RelayStatus = False
 RelayChange = False
@@ -59,7 +55,7 @@ WeatherDelay = 3600
 WeatherCount = 0
 SunRiseSet = ""
 Weather = ""
-TCP_IPReceive = "*IPADDRESS"
+TCP_IPReceive = "192.168.1.240"
 TCP_PORTReceive = 5005
 BUFFER_SIZE = 256
 
@@ -82,9 +78,9 @@ def openSocket2():
 	global socket2Open
 	global sock2
 	global ESP8266Online
-	if os.system("ping -c 1 *ESP8266ValveIPADDRESS") == 0:
+	if os.system("ping -c 1 192.168.1.242") == 0:
 		try:
-			TCP_IPSend = "*ESP8266ValveIPADDRESS"
+			TCP_IPSend = "192.168.1.242"
 			TCP_PORTSend = 81
 			sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			sock2.connect((TCP_IPSend, TCP_PORTSend))
@@ -108,7 +104,7 @@ openSocket2()
 devices = map(InputDevice, list_devices())
 eventX=""
 for dev in devices:
-	if dev.name == "*TOUCHSCREEN":
+	if dev.name == "ADS7846 Touchscreen":
 		eventX = dev.fn
 print eventX
 
@@ -127,7 +123,7 @@ for x in range (1, 97) :
 	
 def ReadJSONFile() :
 	global timeboxstatus
-	#print "Reading JSON File"
+	print "Reading JSON File"
 	try:
 		FileTimeRead = open('/var/www/html/json.txt', 'r')
 		FileTimeRead.seek(0)
@@ -142,7 +138,7 @@ def ReadJSONFile() :
 	
 def WriteJSONFile() :
 	FileTimeSave = open('/var/www/html/json.txt', 'w+')
-	#print "Saving JSON file"
+	print "Saving JSON file"
 	json.dump(timeboxstatus, FileTimeSave)
 	FileTimeSave.flush()
 	FileTimeSave.close()
@@ -156,10 +152,6 @@ def ReadXML():
 	global PreviousDownstairs
 	global ESP8266Online
 	global OilLevel
-	global OutsideBatt
-	global OutsideBattText
-	global OutsideTemp
-	global OutsideTempText
 	global newBoot
 	try:
 		PreviousSystemMode = SystemMode
@@ -212,12 +204,6 @@ def ReadXML():
 		OilLevel = str(root[9].text)
 		OilLevelText = "OilLevel = "
 		OilLevelText += OilLevel
-		OutsideTemp = str(root[10].text)
-		OutsideTempText = "Ground Temp = "
-		OutsideTempText += OutsideTemp
-		OutsideBatt = str(root[11].text)
-		OutsideBattText = "Battery Vol = "
-		OutsideTempText += OutsideTemp
 	except Exception, e:
 			print "ReadXML Error:", repr(e)
 			print "Copying backup XML"
@@ -227,8 +213,6 @@ def ReadXML():
 ReadXML()
 
 def WriteXML():
-	global screenRefreshRequested
-	#print "WriteXML()"
 	root = XML.Element("root")
 	
 	if (SystemMode == 0) :#1
@@ -277,8 +261,6 @@ def WriteXML():
 	else :
 		XML.SubElement(root, "field").text = "False"
 	XML.SubElement(root, "field").text = str(OilLevel)
-	XML.SubElement(root, "field").text = str(OutsideTemp)
-	XML.SubElement(root, "field").text = str(OutsideBatt)
 	tree = XML.ElementTree(root)
 	tree = XML.ElementTree(root)
 	tree.write("/var/www/html/ButtonStatus.xml")
@@ -291,24 +273,20 @@ def WeatherDisplay() :
 	global WeatherCount
 	WeatherCount = (time.time() - WeatherCheck)
 	if WeatherCount > WeatherDelay :
-		#print "Getting Weather Info"
-		global yahoo_result
-		global SunRiseSet
-		global Weather
-		global RainHumid
-		global Wind
-		global WindSpeed
-		u = u"\N{DEGREE SIGN}"
-		a = u.encode('utf-8')
+		print "Getting Weather Info"
 		try:
-			weather_result = pywapi.get_weather_from_weather_com('*locationCode')
-		except Exception, e:
-			weather_result = "n/a"
-			print "weather_result error", repr(e)
-		try:
+			global yahoo_result
+			global SunRiseSet
+			global Weather
+			global RainHumid
+			global Wind
+			global WindSpeed
+			u = u"\N{DEGREE SIGN}"
+			a = u.encode('utf-8')
+			weather_result = pywapi.get_weather_from_weather_com('EIXX0003')
 			WindSpd = str(weather_result['current_conditions']['wind']['speed'])
 			WindDir = (weather_result['current_conditions']['wind']['direction'])
-		
+			
 			if (WindDir >= 349) or (WindDir <= 11) :
 				WindDirection = "NORTH"
 			elif (WindDir >= 12) and (WindDir <= 33) :
@@ -341,31 +319,25 @@ def WeatherDisplay() :
 				WindDirection = "North-West"
 			elif (WindDir >= 327) and (WindDir <= 348) :
 				WindDirection = "North-North-West"
+			
+			
+			RainHumid = str("Humidity: " + (weather_result['forecasts'][0]['day']['humidity']) + "%" + "         Rain Chance: " + (weather_result['forecasts'][0]['day']['chance_precip']) + "%")
+			yahoo_result = pywapi.get_weather_from_yahoo('EIXX0003', 'metric')
+			SunRiseSet = str("Sunrise: " + (yahoo_result['astronomy']['sunrise']) + "   -   Sunset: " + (yahoo_result['astronomy']['sunset']))
+			Weather = str((yahoo_result['condition']['text']) + " and " + (yahoo_result['condition']['temp']))
+			Weather = Weather + u + "C"
 			Wind = "Wind: " + WindDirection
 			WindSpeed = WindSpd + " km/h"
-			
+			WeatherCheck = time.time()
 		except Exception, e:
-			Wind = "n/a"
-			WindSpeed = "n/a"
-			print "Wind error", repr(e)
-		
-		try :
-			RainHumid = str("Humidity: " + (weather_result['forecasts'][0]['day']['humidity']) + "%" + "         Rain Chance: " + (weather_result['forecasts'][0]['day']['chance_precip']) + "%")
-		except Exception, e:
-			RainHumid = "n/a"
-			print "RainHumid error", repr(e)
-		try:
-			SunRiseSet = str("Sunrise: " + (weather_result['forecasts'][0]['sunrise']) + "   -   Sunset: " + (weather_result['forecasts'][0]['sunset']))
-		except Exception, e:
-			SunRiseSet = "n/a"
-			print "SunRiseSet error", repr(e)
-		try:
-			Weather = str((weather_result['current_conditions']['text']) + " and " + (weather_result['current_conditions']['temperature']))
-			Weather = Weather + u + "C"
-		except Exception, e:
-			Weather = "n/a"
-			print "Weather error", repr(e)
-		WeatherCheck = time.time()
+			print "Weather Error:", repr(e)
+			RainHumid = ""
+			yahoo_result = ""
+			SunRiseSet = ""
+			Weather = "       Weather Information Unavailable"
+			Wind = ""
+			WindSpeed = ""
+			WeatherCheck = time.time()
 		
 # set up the window
 screen = pygame.display.set_mode((Horizontal, Vertical), 0, 32)
@@ -513,7 +485,7 @@ def Screen1() :
 	#pygame.display.flip()
 
 def Screen1Refresh() :
-	#print "Screen1Refresh()"
+	print "Screen1Refresh()"
 	#ReadXML()
 	font = pygame.font.Font(None, 25)
 	global Upstairs
@@ -619,7 +591,7 @@ def Screen1Refresh() :
 Screen1Refresh()	
 
 def ClockTime() :  # Updates the on-screen clock
-	#print "ClockTime()"
+	print "ClockTime()"
 	clock = pygame.time.Clock()
 	clock.tick(20)	#Sets the refresh rate for the screen
 	theTime=time.strftime("%H:%M:%S", time.localtime())
@@ -637,7 +609,7 @@ def ClockTime() :  # Updates the on-screen clock
 	#pygame.display.update(timeTextPos)
 
 def TimeScreen1():# Mark the populated time screen as either Red:selected or Blue:not selected
-	#print "TimeScreen1"
+	print "TimeScreen1"
 	ReadJSONFile()
 	global timeboxstatus
 	background = pygame.Surface(screen.get_size())
@@ -1065,8 +1037,9 @@ def TimeScreen1():# Mark the populated time screen as either Red:selected or Blu
 	pygame.display.flip()
 
 def TimeSelect() :# Populate the time screen with blocks of 15 minutes
-	#print "TimeSelect()"
+	print "TimeSelect()"
 	global timeboxstatus
+	global screenRefreshRequested
 	clock = pygame.time.Clock()
 	clock.tick(20)
 	OKBoxSide = pygame.draw.rect(background, GREEN, ((Horizontal - OKSide), 0, Horizontal, Vertical))
@@ -1188,17 +1161,19 @@ def TimeSelect() :# Populate the time screen with blocks of 15 minutes
 							timeboxstatus[x] = True
 							WriteJSONFile()
 							TimeScreen1()
-				if OKBoxSide.collidepoint(pygame.mouse.get_pos()):
-					selecting = False
-				if OKBoxBottom.collidepoint(pygame.mouse.get_pos()):
-					selecting = False
+					if OKBoxSide.collidepoint(pygame.mouse.get_pos()):
+						selecting = False
+						screenRefreshRequested = True
+					if OKBoxBottom.collidepoint(pygame.mouse.get_pos()):
+						selecting = False
+						screenRefreshRequested = True
 			elif event.type == KEYDOWN and event.key == K_ESCAPE:
 				selecting = False
 		
 		#pygame.display.update()
-	Screen1Refresh()
+	
 def XMLWriteRequestCheck() :# Checks if a the XML is to be written to and writes to it.  This avoids two processes writing at the same time
-	#print "XMLWriteRequestCheck()"
+	print "XMLWriteRequestCheck()"
 	global XMLWriteRequest
 	if (XMLWriteRequest == True) :
 		WriteXML()
@@ -1206,7 +1181,7 @@ def XMLWriteRequestCheck() :# Checks if a the XML is to be written to and writes
 		XMLWriteRequest = False
 	
 def RelayTimedMode() :# If the heating is in timed mode this checks the current time and if the slot is marked as true it turns on the relay
-	#print "RelayTimedMode()"
+	print "RelayTimedMode()"
 	jsonTimer = time.time()
 	jsonTimerDelay = jsonTimer + 60
 	global SystemMode
@@ -1435,7 +1410,7 @@ def RelayTimedMode() :# If the heating is in timed mode this checks the current 
 					XMLWriteRequest = True
 	
 def TimerBox():# Runs the Boost mode, counts down the timer, changes it to hrs+mins and once the mode is active and the timer is greater than 0, it turns on the relay.
-	#print "TimerBox()"
+	print "TimerBox()"
 	global SystemMode
 	global BoostDelay
 	global BoostCount
@@ -1536,17 +1511,16 @@ def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it
 					print "MessageSent2 = ", MessageSent
 					ESP8266Online = True
 					XMLWriteRequest = True
-					screenRefreshRequested = True
 		except Exception, e:
 			print "TCPClientSend", repr(e)
 			print "Sending data to Zone Controller timed out on message ", data
-			if os.system("ping -c 1 *ESP8266ValveIPADDRESS") == 0:
-				print "*ESP8266ValveIPADDRESS appears to be up"
+			if os.system("ping -c 1 192.168.1.242") == 0:
+				print "192.168.1.242 appears to be up"
 				openSocket2()
 				ESP8266Online = True
 										
 			else :
-				print "*ESP8266ValveIPADDRESS appears to be down"
+				print "192.168.1.242 appears to be down"
 				socket2Open = False
 				ESP8266Online = False
 				GPIO.output(GPIO_GREEN_LED, False)
@@ -1557,16 +1531,16 @@ def TCPClientSend(data) :# Sends TCP instructions to the valve controller (if it
 		openSocket2()
 	
 	if MessageSent == True:
-		#print "MessageSent3 = ", MessageSent
+		print "MessageSent3 = ", MessageSent
 		MessageSent = False
-		#print "MessageSent4= ", MessageSent
+		print "MessageSent4= ", MessageSent
 		return True
 	elif MessageSent == False:
-		#print "MessageSent5 = ", MessageSent
+		print "MessageSent5 = ", MessageSent
 		return False
 
 def SystemModeCheck():# This checks the current system mode and initiates changes based on that variable including Downstairs and Upstairs valve changes.  This avoids two processes writing at the same time
-	#print "SystemModeCheck()"
+	print "SystemModeCheck()"
 	global zoneUpChange
 	global zoneDownChange
 	global screenRefreshRequested
@@ -1629,7 +1603,7 @@ def SystemModeCheck():# This checks the current system mode and initiates change
 	if (SystemMode == 1) :
 		TimerBox()
 	elif (SystemMode == 2) :
-		#ReadJSONFile()
+		ReadJSONFile()
 		RelayTimedMode()
 	elif (SystemMode == 3) :
 		if GPIO.input(GPIO_RELAY) == False :
@@ -1643,7 +1617,7 @@ def SystemModeCheck():# This checks the current system mode and initiates change
 			GPIO.output(GPIO_RED_LED, False)
 			RelayStatus = False
 			XMLWriteRequest = True
-	
+
 	if (time.time() - ESP8266PreviousCheck) > ESP8266CheckDelay :
 		TCPClientSend("status")
 		ESP8266PreviousCheck = time.time()
@@ -1658,11 +1632,11 @@ def main():#The main functions of the program and handles the touchscreen
 			SystemModeCheck()
 			XMLWriteRequestCheck()
 			if ((time.time() - runningCheck) > runningDelay) :
-				#print "Running Main"
+				print "Running Main"
 				print "Active Threads = ", threading.activeCount();
 				#print "TCPListen2Loops = ", TCPListen2Loops
 				runningCheck = time.time()
-			#print "Running Main"
+			print "Running Main"
 		except Exception, e:
 			print "main", repr(e)
 	print "Running = False"
@@ -1686,7 +1660,7 @@ def screenHandler():#Handles the touchscreen
 	print "ScreenHANDLER"
 	while running == True:
 		try:
-			#print "Running ScreenHandler"
+			print "Running ScreenHandler"
 			ClockTime()
 			if screenRefreshRequested == True :
 				screenRefreshRequested = False
@@ -1766,7 +1740,7 @@ def screenHandler():#Handles the touchscreen
 			#pygame.display.update()
 		except Exception, e:
 			print "screenHandler", repr(e)
-					
+				
 class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP instructions from the website
 	def handle(self):
 		global SystemMode
@@ -1828,11 +1802,6 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):#A class to handle the TCP i
 			zoneDownChange = True
 			XMLWriteRequest = True
 			screenRefreshRequested = True
-		if ((self.data) == "XMLUpdate") :
-			XMLWriteRequest = True
-			screenRefreshRequested = True
-			ReadJSONFile()
-			print "GOT XMLUPDATE"
 		if listening == False :
 			print "Shutdown Server"
 			server.server_close()
@@ -1850,14 +1819,8 @@ def TCPListen() :#Function to start listening for instructions from the website
 def TCPListen2() :#Function to listen for OilLevel readings (over TCP) --- possibly outside temperature also at a later date 
 	global OilLevel
 	global OilLevelText
-	global OutsideTemp
-	global OutsideTempText
-	global OutsideBatt
-	global OutsideBattText
 	global listening
 	global screenRefreshRequested
-	global XMLWriteRequest
-	
 	#global TCPListen2Loops
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	sock.bind((TCP_IPReceive, TCP_PORTReceive))
@@ -1867,61 +1830,35 @@ def TCPListen2() :#Function to listen for OilLevel readings (over TCP) --- possi
 			if (listening == False) :
 				print "Listening", listening, "Exiting Thread"
 				thread.exit()
-			#elif (listening == True): 
-				#print "Listening", listening
+			elif (listening == True): 
+				print "Listening", listening
 			#print "TCPListen2Loop"
 			#TCPListen2Loops = TCPListen2Loops +1
 			sock.listen(1)
 			conn, addr = sock.accept()
 			print 'Connection address:', addr
 			data = ""
-			#while data != "\n":
-			data = conn.recv(BUFFER_SIZE)
-			if not data: break
-			print "Received Data: ", data
-			if data:
-				if "OilLevel" in data :
-					print "Arduino TCP Received", data
-					try:
-						OilLevelInt = int(re.search(r'\d+', data).group())
+			while data != "\n":
+				data = conn.recv(BUFFER_SIZE)
+				if not data: break
+				print "Received Data: ", data
+				if data:
+					if "OilLevel" in data :
+						print "Arduino TCP Received", data
+						try:
+							OilLevelInt = int(re.search(r'\d+', data).group())
+						except ValueError :
+							OilLevel = "   "
+							
 						OilLevel = str(OilLevelInt)
 						OilLevelText = "OilLevel = "
 						OilLevelText += OilLevel
 						XMLWriteRequest = True
 						screenRefreshRequested = True
-					except ValueError :
-						OilLevel = "   "
-						OilLevelText = "OilLevel = N/A"
-				if "Temp" in data :
-					print "Arduino TCP Received", data
-					try :
-						TempString = data.strip('Temp:')
-						TempFloat = float(TempString)
-						OutsideTemp = str(TempFloat)
-						OutsideTempText = "Ground Temp = "
-						OutsideTempText += OutsideTemp
-						print "Outside Temperature = ",OutsideTempText
-						XMLWriteRequest = True
-					except ValueError :
-						OutsideTemp = "   "
-						OutsideTempText = "Group Temp = N/A"	
-				if "BattVolt" in data :
-					print "Arduino TCP Received", data
-					try :
-						BattString = data.strip('BattVolt:')
-						BattFloat = float(BattString)
-						OutsideBatt = str(BattFloat)
-						OutsideBattText = "Battery Voltage = "
-						OutsideBattText += OutsideBatt
-						print "Outside Battery Voltage = ",OutsideBattText
-						XMLWriteRequest = True
-					except ValueError :
-						OutsideTemp = "   "
-						OutsideTempText = "Group Temp = N/A"
 			conn.close()
 		except Exception, e:
 			print "TCPListen2", repr(e)
-	conn.close()	
+		
 	thread.exit()			
 
 if __name__ == '__main__' :
