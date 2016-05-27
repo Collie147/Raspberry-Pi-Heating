@@ -288,6 +288,7 @@ read -p $'\e[32mINSTALLER:\e[0m  Enter Password for the web admin:-' -e -i $WebP
 sudo sed -i "s/*WebUSER/$WebUSER/g" /var/www/html/login.php
 sudo sed -i "s/*WebPASS/$WebPASS/g" /var/www/html/login.php
 sed -i "s/*ESP8266ValveIPADDRESS/$ESP8266ValveIPADDRESS/g" /home/pi/RPiHeatingScreen.py	
+sudo python /home/pi/RPiHeatingInstall/PYWAPILocation.py
 echo -e "\x1b[0;32mINSTALLER:\x1b[m  Do you wish to Reboot, Restart Heating Script or Exit"
 OPTION6="Reboot Restart Exit"
 select opt in $OPTION6; do

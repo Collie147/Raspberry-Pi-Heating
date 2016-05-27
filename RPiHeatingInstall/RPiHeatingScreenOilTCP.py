@@ -301,7 +301,7 @@ def WeatherDisplay() :
 		u = u"\N{DEGREE SIGN}"
 		a = u.encode('utf-8')
 		try:
-			weather_result = pywapi.get_weather_from_weather_com('EIXX0003')
+			weather_result = pywapi.get_weather_from_weather_com('*locationCode')
 		except Exception, e:
 			weather_result = "n/a"
 			print "weather_result error", repr(e)
@@ -355,17 +355,12 @@ def WeatherDisplay() :
 			RainHumid = "n/a"
 			print "RainHumid error", repr(e)
 		try:
-			yahoo_result = pywapi.get_weather_from_yahoo('EIXX0003', 'metric')
-		except Exception, e:
-			yahoo_result = "n/a"
-			print "yahoo_result", repr(e)
-		try:
-			SunRiseSet = str("Sunrise: " + (yahoo_result['astronomy']['sunrise']) + "   -   Sunset: " + (yahoo_result['astronomy']['sunset']))
+			SunRiseSet = str("Sunrise: " + (weather_result['forecasts'][0]['sunrise']) + "   -   Sunset: " + (weather_result['forecasts'][0]['sunset']))
 		except Exception, e:
 			SunRiseSet = "n/a"
 			print "SunRiseSet error", repr(e)
 		try:
-			Weather = str((yahoo_result['condition']['text']) + " and " + (yahoo_result['condition']['temp']))
+			Weather = str((weather_result['current_conditions']['text']) + " and " + (weather_result['current_conditions']['temperature']))
 			Weather = Weather + u + "C"
 		except Exception, e:
 			Weather = "n/a"
@@ -1861,7 +1856,7 @@ def TCPListen2() :#Function to listen for OilLevel readings (over TCP) --- possi
 	global OutsideBattText
 	global listening
 	global screenRefreshRequested
-	global XMLWriteRequestCheck
+	global XMLWriteRequest
 	
 	#global TCPListen2Loops
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1880,53 +1875,53 @@ def TCPListen2() :#Function to listen for OilLevel readings (over TCP) --- possi
 			conn, addr = sock.accept()
 			print 'Connection address:', addr
 			data = ""
-			while data != "\n":
-				data = conn.recv(BUFFER_SIZE)
-				if not data: break
-				print "Received Data: ", data
-				if data:
-					if "OilLevel" in data :
-						print "Arduino TCP Received", data
-						try:
-							OilLevelInt = int(re.search(r'\d+', data).group())
-							OilLevel = str(OilLevelInt)
-							OilLevelText = "OilLevel = "
-							OilLevelText += OilLevel
-							XMLWriteRequest = True
-							screenRefreshRequested = True
-						except ValueError :
-							OilLevel = "   "
-							OilLevelText = "OilLevel = N/A"
-								if "Temp" in data :
-							print "Arduino 433 Received", data
-							try :
-								TempString = data.strip('Temp')
-								TempFloat = float(TempString)
-								OutsideTemp = str(TempFloat)
-								OutsideTempText = "Ground Temp = "
-								OutsideTempText += OutsideTemp
-								print "Outside Temperature = ",OutsideTempText
-								XMLWriteRequest = True
-							except ValueError :
-								OutsideTemp = "   "
-								OutsideTempText = "Group Temp = N/A"	
-					if "BattVolt" in data :
-							print "Arduino TCP Received", data
-							try :
-								BattString = data.strip('BattVolt')
-								BattFloat = float(BattString)
-								OutsideBatt = str(BattFloat)
-								OutsideBattText = "Battery Voltage = "
-								OutsideBattText += OutsideBatt
-								print "Outside Battery Voltage = ",OutsideBattText
-								XMLWriteRequest = True
-							except ValueError :
-								OutsideTemp = "   "
-								OutsideTempText = "Group Temp = N/A"
+			#while data != "\n":
+			data = conn.recv(BUFFER_SIZE)
+			if not data: break
+			print "Received Data: ", data
+			if data:
+				if "OilLevel" in data :
+					print "Arduino TCP Received", data
+					try:
+						OilLevelInt = int(re.search(r'\d+', data).group())
+						OilLevel = str(OilLevelInt)
+						OilLevelText = "OilLevel = "
+						OilLevelText += OilLevel
+						XMLWriteRequest = True
+						screenRefreshRequested = True
+					except ValueError :
+						OilLevel = "   "
+						OilLevelText = "OilLevel = N/A"
+				if "Temp" in data :
+					print "Arduino TCP Received", data
+					try :
+						TempString = data.strip('Temp:')
+						TempFloat = float(TempString)
+						OutsideTemp = str(TempFloat)
+						OutsideTempText = "Ground Temp = "
+						OutsideTempText += OutsideTemp
+						print "Outside Temperature = ",OutsideTempText
+						XMLWriteRequest = True
+					except ValueError :
+						OutsideTemp = "   "
+						OutsideTempText = "Group Temp = N/A"	
+				if "BattVolt" in data :
+					print "Arduino TCP Received", data
+					try :
+						BattString = data.strip('BattVolt:')
+						BattFloat = float(BattString)
+						OutsideBatt = str(BattFloat)
+						OutsideBattText = "Battery Voltage = "
+						OutsideBattText += OutsideBatt
+						print "Outside Battery Voltage = ",OutsideBattText
+						XMLWriteRequest = True
+					except ValueError :
+						OutsideTemp = "   "
+						OutsideTempText = "Group Temp = N/A"
 			conn.close()
 		except Exception, e:
 			print "TCPListen2", repr(e)
-		
+	conn.close()	
 	thread.exit()			
 
 if __name__ == '__main__' :

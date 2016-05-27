@@ -305,7 +305,7 @@ def WeatherDisplay() :
 		u = u"\N{DEGREE SIGN}"
 		a = u.encode('utf-8')
 		try:
-			weather_result = pywapi.get_weather_from_weather_com('EIXX0003')
+			weather_result = pywapi.get_weather_from_weather_com('*locationCode')
 		except Exception, e:
 			weather_result = "n/a"
 			print "weather_result error", repr(e)
@@ -359,17 +359,12 @@ def WeatherDisplay() :
 			RainHumid = "n/a"
 			print "RainHumid error", repr(e)
 		try:
-			yahoo_result = pywapi.get_weather_from_yahoo('EIXX0003', 'metric')
-		except Exception, e:
-			yahoo_result = "n/a"
-			print "yahoo_result", repr(e)
-		try:
-			SunRiseSet = str("Sunrise: " + (yahoo_result['astronomy']['sunrise']) + "   -   Sunset: " + (yahoo_result['astronomy']['sunset']))
+			SunRiseSet = str("Sunrise: " + (weather_result['forecasts'][0]['sunrise']) + "   -   Sunset: " + (weather_result['forecasts'][0]['sunset']))
 		except Exception, e:
 			SunRiseSet = "n/a"
 			print "SunRiseSet error", repr(e)
 		try:
-			Weather = str((yahoo_result['condition']['text']) + " and " + (yahoo_result['condition']['temp']))
+			Weather = str((weather_result['current_conditions']['text']) + " and " + (weather_result['current_conditions']['temperature']))
 			Weather = Weather + u + "C"
 		except Exception, e:
 			Weather = "n/a"

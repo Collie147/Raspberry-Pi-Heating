@@ -318,6 +318,7 @@ read -p $'\e[32mINSTALLER:\e[0m  Enter Username for the web admin:-' -e -i $WebU
 read -p $'\e[32mINSTALLER:\e[0m  Enter Password for the web admin:-' -e -i $WebPASS WebPASS
 sudo sed -i "s/*WebUSER/$WebUSER/g" /var/www/html/login.php
 sudo sed -i "s/*WebPASS/$WebPASS/g" /var/www/html/login.php
+sudo python /home/pi/RPiHeatingInstall/PYWAPILocation.py
 sed -i "s/*ESP8266ValveIPADDRESS/$ESP8266ValveIPADDRESS/g" /home/pi/RPiHeatingScreen.py	
 echo -e "\x1b[0;32mINSTALLER:\x1b[m  Rebooting Now - NB Raspberry pi will be available @ "$IPADDRESS
 sudo reboot
